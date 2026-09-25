@@ -1,4 +1,4 @@
-import type { MailContent, MailRecipients } from './mail-message.interface.js';
+import type { MailContent, MailRecipients, MailTemplateContent } from './mail-message.interface.js';
 import type { MailRetryOptions } from './mail-retry-options.interface.js';
 
 /** How one `send()` is delivered. */
@@ -18,8 +18,15 @@ export interface MailDeliveryOptions {
   idempotencyKey?: string;
 }
 
-/** `mailer.send({ ... })`: a message written inline. */
-export interface MailSendOptions extends MailContent, MailRecipients, MailDeliveryOptions {}
+/** `mailer.send({ ... })`: a message written inline, as HTML or from a template. */
+export type MailSendOptions = MailRenderOptions & MailDeliveryOptions;
+
+/** `mailer.render({ ... })`: the same, without delivery options. Recipients are optional. */
+export type MailRenderOptions = (MailContent | MailTemplateContent) &
+  MailRecipients & {
+    /** The locale the template is rendered in, and recorded on the message. */
+    locale?: string;
+  };
 
 /** What `send()` resolves to. */
 export interface MailSendResult {

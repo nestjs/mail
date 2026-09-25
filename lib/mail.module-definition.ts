@@ -1,5 +1,6 @@
 import { ConfigurableModuleBuilder, type Provider, type Type } from '@nestjs/common';
 import type { MailModuleOptions, MailModuleStructure } from './interfaces/mail-module-options.interface.js';
+import { MailTemplateEngine } from './templates/mail-template.engine.js';
 import { MailTransport } from './transports/mail.transport.js';
 
 export const {
@@ -10,12 +11,12 @@ export const {
   .setClassMethodName('forRoot')
   .setFactoryMethodName('createMailOptions')
   .setExtras<MailModuleStructure>(
-    { isGlobal: true, transport: undefined, imports: undefined },
-    (definition, { isGlobal, transport, imports }) => ({
+    { isGlobal: true, transport: undefined, templates: undefined, imports: undefined },
+    (definition, { isGlobal, transport, templates, imports }) => ({
       ...definition,
       global: isGlobal,
       imports: [...new Set([...(definition.imports ?? []), ...(imports ?? [])])],
-      providers: [...(definition.providers ?? []), transportProvider(transport)],
+      providers: [...(definition.providers ?? []), transportProvider(transport), templatesProvider(templates)],
     }),
   )
   .build();
@@ -76,5 +77,56 @@ function transportProvider(transport: MailModuleStructure['transport']): Provide
 function assertInstance(value: unknown, where: string): void {
   if (!value || typeof value !== 'object' || typeof (value as MailTransport).send !== 'function') {
     throw new TypeError(`MailModule: \`transport\` from ${where} must be a MailTransport class or instance`);
+  }
+}
+
+/**
+ * The template engine, placed like the transport: a class at the top level (Nest creates
+ * it), an instance there or from the async factory. Without one, the token resolves to
+ * `null`, and a mail that names a template fails when it is sent.
+ */
+function templatesProvider(templates: MailModuleStructure['templates']): Provider {
+  if (templates !== undefined) {
+    if (typeof templates === 'function') {
+      return {
+        provide: MailTemplateEngine,
+        useClass: templates,
+      };
+    }
+    assertEngine(templates, 'forRoot()');
+  }
+
+  return {
+    provide: MailTemplateEngine,
+    inject: [MAIL_MODULE_OPTIONS],
+    useFactory: (options: MailModuleOptions | undefined) => {
+      const fromFactory = options?.templates;
+      if (fromFactory !== undefined && templates !== undefined && fromFactory !== templates) {
+        throw new Error(
+          'MailModule: `templates` is set both at the top level of forRootAsync() and in the options ' +
+            'its factory returns. Set it in one place.',
+        );
+      }
+
+      const resolved = templates ?? fromFactory;
+      if (resolved === undefined) {
+        return null;
+      }
+      if (typeof resolved === 'function') {
+        throw new Error(
+          `MailModule: the forRootAsync() factory returned a class as \`templates\` (${(resolved as Type).name}). ` +
+            'Classes go at the top level of forRootAsync(), next to useFactory, where Nest instantiates them; ' +
+            'the factory returns instances.',
+        );
+      }
+      assertEngine(resolved, 'the forRootAsync() factory');
+      return resolved;
+    },
+  };
+}
+
+function assertEngine(value: unknown, where: string): void {
+  if (!value || typeof value !== 'object' || typeof (value as MailTemplateEngine).render !== 'function') {
+    throw new TypeError(`MailModule: \`templates\` from ${where} must be a MailTemplateEngine class or instance`);
   }
 }

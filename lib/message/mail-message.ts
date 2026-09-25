@@ -22,6 +22,7 @@ export interface MailMessageInit {
   headers: Record<string, string>;
   mail?: Type;
   locale?: string;
+  template?: string;
 }
 
 /**
@@ -47,8 +48,10 @@ export class MailMessage {
   readonly headers: Readonly<Record<string, string>>;
   /** The mail class that rendered the message, when it came from one. */
   readonly mail?: Type;
-  /** The locale the mail class rendered in. */
+  /** The locale the mail was rendered in. */
   readonly locale?: string;
+  /** The template the HTML was rendered from, when it came from one. */
+  readonly template?: string;
   #mime?: Buffer;
 
   /** @internal Built by the mailer, which validates every field first. */
@@ -78,6 +81,9 @@ export class MailMessage {
     }
     if (init.locale !== undefined) {
       this.locale = init.locale;
+    }
+    if (init.template !== undefined) {
+      this.template = init.template;
     }
 
     Object.freeze(this);

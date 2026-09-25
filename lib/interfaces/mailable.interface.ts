@@ -1,21 +1,31 @@
-import type { MailAddress, MailAddressInput, MailContent, MailRecipients } from './mail-message.interface.js';
+import type {
+  MailAddress,
+  MailAddressInput,
+  MailContent,
+  MailRecipients,
+  MailTemplateContent,
+} from './mail-message.interface.js';
 import type { MailDeliveryOptions } from './mail-send.interface.js';
 
 /**
  * A mail class: an injectable provider whose `render()` turns data into a subject and a
- * body. It can inject whatever it needs (`I18nService`, a repository, configuration).
+ * body, written with the `html` template or rendered from a template file. It can inject
+ * whatever it needs (`I18nService`, a repository, configuration).
  *
  * ```ts
  * @Injectable()
  * export class OrderShippedMail implements Mailable<Order> {
  *   render(order: Order, { locale }: MailRenderContext) {
- *     return { subject: `Order #${order.id} shipped`, html: html`<p>On its way!</p>` };
+ *     return { subject: `Order #${order.id} shipped`, template: 'order-shipped', context: { order } };
  *   }
  * }
  * ```
  */
 export interface Mailable<TData = void> {
-  render(data: TData, context: MailRenderContext): MailContent | Promise<MailContent>;
+  render(
+    data: TData,
+    context: MailRenderContext,
+  ): MailContent | MailTemplateContent | Promise<MailContent | MailTemplateContent>;
 }
 
 /** What `render()` gets besides the data. */
@@ -39,7 +49,7 @@ export type MailableSendOptions<TData> = MailRecipients &
 export type MailableRenderOptions<TData> = MailRecipients & MailableOverrides & MailableData<TData>;
 
 interface MailableOverrides {
-  /** The locale to render in, handed to `render()` as `context.locale`. */
+  /** The locale to render in, handed to `render()` as `context.locale`, and to the template engine. */
   locale?: string;
   /** Overrides what `render()` returned, and the module's `from`. */
   from?: MailAddressInput;

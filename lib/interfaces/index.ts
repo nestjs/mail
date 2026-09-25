@@ -4,6 +4,7 @@ export * from './mail-message.interface.js';
 export * from './mail-module-options.interface.js';
 export * from './mail-retry-options.interface.js';
 export * from './mail-send.interface.js';
+export * from './mail-template.interface.js';
 export * from './mail-transport.interface.js';
 export * from './mailable.interface.js';
 export * from './provider-transport-options.interface.js';

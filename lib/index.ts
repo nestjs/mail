@@ -23,13 +23,23 @@ export type {
   MailContent,
   MailDeliveryOptions,
   MailRenderContext,
+  MailRenderOptions,
   MailSendOptions,
   MailSendResult,
+  MailTemplateContent,
 } from './interfaces/index.js';
 export { MailMessage } from './message/mail-message.js';
 
 // Writing HTML: auto-escaping template, explicit opt-out
 export { html, unsafeHtml, type SafeHtml } from './message/html.util.js';
+
+// Templates: the built-in engine over template files, and the contract for your own
+export { FileTemplateEngine, MailTemplateEngine } from './templates/index.js';
+export type {
+  FileTemplateEngineOptions,
+  MailTemplateOutput,
+  MailTemplateRenderOptions,
+} from './interfaces/index.js';
 
 // Transports
 export { MailTransport } from './transports/mail.transport.js';

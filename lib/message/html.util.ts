@@ -59,7 +59,7 @@ export function escapeHtml(text: string): string {
 export function html(strings: TemplateStringsArray, ...values: HtmlValue[]): SafeHtml {
   let out = strings[0];
   for (let i = 0; i < values.length; i++) {
-    if (context(out) === 'tag' && !isSafeHtml(values[i])) {
+    if (htmlContext(out) === 'tag' && !isSafeHtml(values[i])) {
       throw new TypeError(
         /=\s*$/.test(strings[i])
           ? `html: quote the attribute value that interpolation #${i + 1} goes into ` +
@@ -78,9 +78,10 @@ export function html(strings: TemplateStringsArray, ...values: HtmlValue[]): Saf
 /**
  * Where the next value lands: element content (a comment counts), a tag between its
  * attributes, or a quoted attribute value. Escaped values never contain `<`, `>` or a
- * quote, so only the template's own text and trusted `SafeHtml` values decide.
+ * quote, so only the template's own text and trusted `SafeHtml` values decide. Template
+ * files are checked the same way, on their text without the tags.
  */
-function context(out: string): 'text' | 'tag' | 'quoted' {
+export function htmlContext(out: string): 'text' | 'tag' | 'quoted' {
   // The last `<` that opens a tag (a bare `<` in text, as in `a < b`, doesn't)
   let open = out.lastIndexOf('<');
   while (open > 0 && !TAG_START.test(out[open + 1] ?? '')) {

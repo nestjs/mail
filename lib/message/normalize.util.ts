@@ -67,9 +67,11 @@ const CONTENT_TYPES: Record<string, string> = {
 const CONTENT_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/i;
 const CID = /^[A-Za-z0-9._\-@]{1,200}$/;
 
-export interface NormalizeInput extends MailContent, MailRecipients {
+export interface NormalizeInput extends Omit<MailContent, 'template' | 'context'>, MailRecipients {
   mail?: Type;
   locale?: string;
+  /** The template the HTML was rendered from. */
+  template?: string;
   idempotencyKey?: string;
 }
 
@@ -139,6 +141,7 @@ export async function createMailMessage(
     headers,
     mail: input.mail,
     locale: input.locale,
+    template: input.template,
   });
 }
 

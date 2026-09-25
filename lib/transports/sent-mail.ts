@@ -47,6 +47,10 @@ export class SentMail {
   get locale(): string | undefined {
     return this.message.locale;
   }
+  /** The template the HTML was rendered from, when it came from one. */
+  get template(): string | undefined {
+    return this.message.template;
+  }
   /** The message as MIME (the `.eml` source), for assertions on headers and encoding. */
   get raw(): string {
     return this.message.toMime().toString('utf8');

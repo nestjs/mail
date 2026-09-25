@@ -21,7 +21,7 @@ class MailController {
   constructor(private readonly mailer: Mailer) {}
 
   @Post()
-  send(@Body() body: MailSendOptions) {
+  send(@Body() body: Pick<MailSendOptions, 'to' | 'bcc' | 'subject'>) {
     return this.mailer.send({
       ...body,
       html: html`<p>Sign in: <a href="${'https://shop.example.com/magic?token=abc&next=/orders'}">link</a></p>`,

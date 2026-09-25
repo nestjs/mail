@@ -1,4 +1,5 @@
 import type { ConfigurableModuleAsyncOptions, ModuleMetadata, Type } from '@nestjs/common';
+import type { MailTemplateEngine } from '../templates/mail-template.engine.js';
 import type { MailTransport } from '../transports/mail.transport.js';
 import type { MailAddressInput } from './mail-message.interface.js';
 import type { MailRetryOptions } from './mail-retry-options.interface.js';
@@ -14,6 +15,11 @@ export interface MailModuleOptions {
    * configuration. Required in one of the two places.
    */
   transport?: MailTransport;
+  /**
+   * Renders mail that names a `template`: a `FileTemplateEngine`, or your own
+   * `MailTemplateEngine`. An instance here; a class goes at the top level, like `transport`.
+   */
+  templates?: MailTemplateEngine;
   /** The default sender: `'Orders <orders@example.com>'`. */
   from?: MailAddressInput;
   /** The default Reply-To. */
@@ -32,20 +38,25 @@ export interface MailModuleOptions {
 export interface MailModuleStructure {
   /** A `MailTransport` class or instance. Required here or in the async factory's result. */
   transport?: Type<MailTransport> | MailTransport;
-  /** Modules whose exports a transport class injects (`forRootAsync()` has its own `imports`). */
+  /** A `MailTemplateEngine` class or instance, for mail that names a `template`. Optional. */
+  templates?: Type<MailTemplateEngine> | MailTemplateEngine;
+  /** Modules whose exports a transport or template engine class injects (`forRootAsync()` has its own `imports`). */
   imports?: ModuleMetadata['imports'];
   /** Default `true`. */
   isGlobal?: boolean;
 }
 
 /** What `forRoot()` takes. */
-export type MailModuleRootOptions = Omit<MailModuleOptions, 'transport'> & MailModuleStructure;
+export type MailModuleRootOptions = Omit<MailModuleOptions, 'transport' | 'templates'> & MailModuleStructure;
 
 /** Implemented by a class passed to `forRootAsync({ useClass })`. */
 export interface MailOptionsFactory {
   createMailOptions(): MailModuleOptions | Promise<MailModuleOptions>;
 }
 
-/** What `forRootAsync()` takes: `transport`, `imports` and `isGlobal` next to `useFactory`, `useClass` or `useExisting`. */
+/**
+ * What `forRootAsync()` takes: `transport`, `templates`, `imports` and `isGlobal` next to
+ * `useFactory`, `useClass` or `useExisting`.
+ */
 export type MailModuleAsyncOptions = ConfigurableModuleAsyncOptions<MailModuleOptions, 'createMailOptions'> &
   MailModuleStructure;

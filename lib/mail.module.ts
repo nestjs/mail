@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { MailEvents } from './events/mail-events.service.js';
 import { LOCAL_TRANSPORT } from './mail.constants.js';
+import { MailTemplateEngine } from './templates/mail-template.engine.js';
 import { MailTransport } from './transports/mail.transport.js';
 import {
   ConfigurableModuleClass,
@@ -18,17 +19,18 @@ import type { MailModuleAsyncOptions, MailModuleRootOptions } from './interfaces
 import { Mailer } from './mailer.service.js';
 
 /**
- * `MailModule.forRoot({ transport, from, replyTo, headers, retry })`, or
+ * `MailModule.forRoot({ transport, templates, from, replyTo, headers, retry })`, or
  * `forRootAsync({ transport?, imports, inject, useFactory })` where the factory returns
  * the options, and may return the transport as an instance built from configuration.
- * Global by default. Provides `Mailer`, `MailEvents` and `MailTransport`.
+ * Global by default. Provides `Mailer`, `MailEvents`, `MailTransport` and `MailTemplateEngine`
+ * (`null` without `templates`).
  *
  * On shutdown, it waits for the sends in flight, then closes the transport (an SMTP
  * pool says QUIT) and completes `MailEvents.events$`.
  */
 @Module({
   providers: [Mailer, MailEvents],
-  exports: [Mailer, MailEvents, MailTransport, MAIL_MODULE_OPTIONS],
+  exports: [Mailer, MailEvents, MailTransport, MailTemplateEngine, MAIL_MODULE_OPTIONS],
 })
 export class MailModule extends ConfigurableModuleClass implements OnApplicationBootstrap, OnApplicationShutdown {
   constructor(

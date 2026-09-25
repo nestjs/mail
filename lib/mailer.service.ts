@@ -1,17 +1,25 @@
-import { Inject, Injectable, type Type } from '@nestjs/common';
+import { Inject, Injectable, Optional, type Type } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { MailEvents } from './events/mail-events.service.js';
 import { MailTransport } from './transports/mail.transport.js';
 import { MailError } from './errors/mail.error.js';
+import { MailMessageError } from './errors/mail-message.error.js';
+import { MailTemplateError } from './errors/mail-template.error.js';
 import type { Mailable, MailableRenderOptions, MailableSendOptions } from './interfaces/mailable.interface.js';
-import type { MailDeliveryOptions, MailSendOptions, MailSendResult } from './interfaces/mail-send.interface.js';
+import type {
+  MailDeliveryOptions,
+  MailRenderOptions,
+  MailSendOptions,
+  MailSendResult,
+} from './interfaces/mail-send.interface.js';
 import type { MailModuleOptions } from './interfaces/mail-module-options.interface.js';
 import { MAIL_MODULE_OPTIONS } from './mail.module-definition.js';
 import { parseAddress, parseAddressList } from './message/address.util.js';
 import { checkHeaderName, checkHeaderValue } from './message/headers.util.js';
 import type { MailMessage } from './message/mail-message.js';
 import { assertRecipients, createMailMessage, type NormalizeInput } from './message/normalize.util.js';
-import type { MailContent } from './interfaces/mail-message.interface.js';
+import type { MailContent, MailRecipients, MailTemplateContent } from './interfaces/mail-message.interface.js';
+import { MailTemplateEngine } from './templates/mail-template.engine.js';
 import { backoffDelay, type ResolvedRetry, resolveRetry, sleep } from './utils/retry.util.js';
 
 /**
@@ -19,6 +27,7 @@ import { backoffDelay, type ResolvedRetry, resolveRetry, sleep } from './utils/r
  *
  * ```ts
  * await mailer.send({ to: user.email, subject: 'Welcome', html: html`<p>Hi ${user.name}</p>` });
+ * await mailer.send({ to: user.email, subject: 'Welcome', template: 'welcome', context: { name: user.name } });
  * await mailer.send(OrderShippedMail, { to: customer.email, data: order, locale: customer.locale });
  * ```
  *
@@ -37,12 +46,13 @@ export class Mailer {
     private readonly transport: MailTransport,
     private readonly events: MailEvents,
     private readonly moduleRef: ModuleRef,
+    @Optional() @Inject(MailTemplateEngine) private readonly templates?: MailTemplateEngine | null,
   ) {
     this.retry = resolveRetry(options.retry, 'MailModule');
     checkDefaults(options);
   }
 
-  /** Sends a message written inline. */
+  /** Sends a message written inline, as HTML or from a template. */
   send(message: MailSendOptions): Promise<MailSendResult>;
   /** Renders `mail` with `options.data` and sends it. */
   send<M extends Mailable<any>>(
@@ -70,8 +80,14 @@ export class Mailer {
   render<M extends Mailable<any>>(
     mail: Type<M>,
     options: MailableRenderOptions<Parameters<M['render']>[0]>,
-  ): Promise<MailMessage> {
-    return this.renderMail(mail, options as MailableRenderOptions<unknown>);
+  ): Promise<MailMessage>;
+  /** Renders a message written inline, such as `{ subject, template, context }`, without sending it. */
+  render(message: MailRenderOptions): Promise<MailMessage>;
+  render(target: MailRenderOptions | Type<Mailable<unknown>>, options?: MailableRenderOptions<unknown>): Promise<MailMessage> {
+    if (typeof target === 'function') {
+      return this.renderMail(target, options ?? {});
+    }
+    return this.renderInline(target);
   }
 
   /** @internal Resolves once every send started so far has settled. */
@@ -85,12 +101,16 @@ export class Mailer {
     target: MailSendOptions | Type<Mailable<unknown>>,
     options: MailableSendOptions<unknown>,
   ): Promise<MailMessage> {
-    const message =
-      typeof target === 'function'
-        ? await this.renderMail(target, options)
-        : await createMailMessage(target as NormalizeInput, this.options);
+    const message = typeof target === 'function' ? await this.renderMail(target, options) : await this.renderInline(target);
     assertRecipients(message);
     return message;
+  }
+
+  private async renderInline(message: MailRenderOptions & MailDeliveryOptions): Promise<MailMessage> {
+    if (!message || typeof message !== 'object') {
+      throw new TypeError('Mailer: pass a mail class, or a message such as { to, subject, html }');
+    }
+    return createMailMessage(await this.fromTemplate(message, message.locale), this.options);
   }
 
   private async renderMail(
@@ -99,10 +119,11 @@ export class Mailer {
   ): Promise<MailMessage> {
     const mail = await this.resolve(type);
     const to = parseAddressList(options.to, 'to');
-    const content: MailContent = await mail.render(options.data, { locale: options.locale, to });
-    if (!content || typeof content !== 'object') {
-      throw new TypeError(`${type.name}.render() must return { subject, html?, text? }`);
+    const rendered = await mail.render(options.data, { locale: options.locale, to });
+    if (!rendered || typeof rendered !== 'object') {
+      throw new TypeError(`${type.name}.render() must return { subject, html?, text? } or { subject, template, context? }`);
     }
+    const content = await this.fromTemplate(rendered, options.locale);
 
     return createMailMessage(
       {
@@ -120,6 +141,55 @@ export class Mailer {
       },
       this.options,
     );
+  }
+
+  /**
+   * Renders the template that the content names, if any, into its `html` (and `text`, when
+   * the engine gives one). Content without a template passes through.
+   */
+  private async fromTemplate(
+    content: (MailContent | MailTemplateContent) & MailRecipients & { idempotencyKey?: string; locale?: string },
+    locale: string | undefined,
+  ): Promise<NormalizeInput> {
+    const { template, context, ...rest } = content;
+    if (template === undefined) {
+      if (context !== undefined) {
+        throw new MailMessageError('context', 'is only used with `template`');
+      }
+      return rest as NormalizeInput;
+    }
+
+    if (typeof template !== 'string' || !template) {
+      throw new MailMessageError('template', 'must be a non-empty string');
+    }
+    for (const field of ['html', 'text'] as const) {
+      if (rest[field] !== undefined) {
+        throw new MailMessageError(
+          'template',
+          `and \`${field}\` are both set: the template renders the body (a .txt template the text)`,
+        );
+      }
+    }
+    if (context !== undefined && (context === null || typeof context !== 'object')) {
+      throw new MailMessageError('context', 'must be an object');
+    }
+    if (!this.templates) {
+      throw new MailTemplateError(
+        `The mail names the template "${template}", but MailModule has no template engine: pass ` +
+          "`templates: new FileTemplateEngine({ dir: 'templates' })`, or your own MailTemplateEngine, to forRoot()",
+        { template },
+      );
+    }
+
+    const output = await this.templates.render(template, context ?? {}, { locale });
+    const { html, text } = typeof output === 'string' ? { html: output, text: undefined } : (output ?? {});
+    if (typeof html !== 'string' || (text !== undefined && typeof text !== 'string')) {
+      throw new TypeError(
+        `${this.templates.constructor.name}.render() must return the HTML as a string, or { html, text? }`,
+      );
+    }
+
+    return { ...rest, html, ...(text !== undefined && { text }), template } as NormalizeInput;
   }
 
   /**

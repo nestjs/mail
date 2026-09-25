@@ -80,7 +80,9 @@ export class InMemoryMailTransport extends MailTransport {
       return 'No mail was sent.';
     }
     const lines = this.#mails.map(
-      (mail) => `  - "${mail.subject}" to ${mail.message.envelope.to.join(', ')}${mail.mail ? ` (${mail.mail.name})` : ''}`,
+      (mail) =>
+        `  - "${mail.subject}" to ${mail.message.envelope.to.join(', ')}` +
+        `${mail.mail ? ` (${mail.mail.name})` : ''}${mail.template ? ` [${mail.template}]` : ''}`,
     );
     return `Sent:\n${lines.join('\n')}`;
   }
@@ -107,6 +109,10 @@ function matches(mail: SentMail, query: SentMailQuery | undefined): boolean {
     }
   }
 
+  if (query.template !== undefined && mail.template !== query.template) {
+    return false;
+  }
+
   return query.mail === undefined || mail.mail === query.mail;
 }
 
@@ -121,6 +127,9 @@ function describe(query: SentMailQuery | undefined): string {
   const parts: string[] = [];
   if (query.mail) {
     parts.push(`rendered by ${query.mail.name}`);
+  }
+  if (query.template !== undefined) {
+    parts.push(`from the template ${query.template}`);
   }
   if (query.to !== undefined) {
     parts.push(`to ${query.to}`);

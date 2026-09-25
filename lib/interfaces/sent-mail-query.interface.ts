@@ -11,5 +11,7 @@ export type SentMailQuery =
       subject?: string | RegExp;
       /** The mail class that rendered it. */
       mail?: Type;
+      /** The template its HTML was rendered from. */
+      template?: string;
     }
   | ((mail: SentMail) => boolean);

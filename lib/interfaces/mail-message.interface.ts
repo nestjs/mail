@@ -40,7 +40,10 @@ export interface MailAttachmentInput {
   cid?: string;
 }
 
-/** The fields every message has, whether passed to `send()` or returned from a mail class. */
+/**
+ * A message written as HTML (or text), whether passed to `send()` or returned from a mail
+ * class. `MailTemplateContent` is the same message rendered from a template instead.
+ */
 export interface MailContent {
   subject: string;
   /**
@@ -50,6 +53,10 @@ export interface MailContent {
   html?: string | SafeHtml;
   /** The plain-text body. Derived from `html` when omitted. */
   text?: string;
+  /** Not with `html` or `text`: see `MailTemplateContent`. */
+  template?: never;
+  /** Only with `template`. */
+  context?: never;
   attachments?: MailAttachmentInput[];
   /** Custom headers, such as `List-Unsubscribe` or `X-Entity-Ref-ID`. */
   headers?: Record<string, string>;
@@ -57,6 +64,25 @@ export interface MailContent {
   from?: MailAddressInput;
   /** Overrides the module's `replyTo`. */
   replyTo?: MailAddressInput | MailAddressInput[];
+}
+
+/**
+ * A message whose body is rendered from a template by the module's `templates` engine,
+ * whether passed to `send()` or returned from a mail class.
+ */
+export interface MailTemplateContent extends Omit<MailContent, 'html' | 'text' | 'template' | 'context'> {
+  /**
+   * The template's name, such as `order-confirmation`: with `FileTemplateEngine`, the file
+   * `order-confirmation.html` (and `order-confirmation.txt` for the text part, if it
+   * exists), in the mail's locale when there is one.
+   */
+  template: string;
+  /** The values the template reads, prepared for it: formatted prices, translated strings. */
+  context?: object;
+  /** The template renders the HTML. */
+  html?: never;
+  /** The template's `.txt` version renders the text, else it is derived from the HTML. */
+  text?: never;
 }
 
 /** Recipients, for `send()` with a message and with a mail class. */
