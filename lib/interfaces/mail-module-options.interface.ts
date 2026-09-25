@@ -14,7 +14,7 @@ export interface MailModuleOptions {
    * configuration. Required in one of the two places.
    */
   transport?: MailTransport;
-  /** The default sender: `'Acme Books <orders@acme.example>'`. */
+  /** The default sender: `'Orders <orders@example.com>'`. */
   from?: MailAddressInput;
   /** The default Reply-To. */
   replyTo?: MailAddressInput | MailAddressInput[];

@@ -31,11 +31,11 @@ import {
 } from '../lib/index.js';
 import { parseMessage } from './support/mime-parser.js';
 
-const FROM = 'Acme Books <orders@acme.example>';
+const FROM = 'Orders <orders@example.com>';
 const CONFIG = Symbol('CONFIG');
 
 @Global()
-@Module({ providers: [{ provide: CONFIG, useValue: { shopUrl: 'https://acme.example' } }], exports: [CONFIG] })
+@Module({ providers: [{ provide: CONFIG, useValue: { shopUrl: 'https://shop.example.com' } }], exports: [CONFIG] })
 class ConfigModule {}
 
 @Injectable()
@@ -77,7 +77,7 @@ class OrdersModule {}
 /** Not a provider anywhere, no dependencies. */
 class WelcomeMail implements Mailable {
   render() {
-    return { subject: 'Welcome', text: 'Welcome to Acme Books' };
+    return { subject: 'Welcome', text: 'Welcome to the store' };
   }
 }
 
@@ -130,17 +130,17 @@ describe('MailModule and Mailer', () => {
   describe('registration', () => {
     it('forRoot() takes a transport instance and defaults, and is global', async () => {
       const mailbox = new InMemoryMailTransport();
-      await compile([ConfigModule, MailModule.forRoot({ transport: mailbox, from: FROM, replyTo: 'help@acme.example' }), OrdersModule]);
+      await compile([ConfigModule, MailModule.forRoot({ transport: mailbox, from: FROM, replyTo: 'help@example.com' }), OrdersModule]);
 
       expect(moduleRef!.get(MailTransport)).toBe(mailbox);
       expect(moduleRef!.get(MAIL_MODULE_OPTIONS)).toMatchObject({ from: FROM });
 
       const result = await moduleRef!.get(Mailer).send({ to: 'ada@example.com', subject: 'Hi', text: 'Hello' });
-      expect(result).toMatchObject({ accepted: ['ada@example.com'], attempts: 1, messageId: expect.stringMatching(/@acme\.example>$/) });
+      expect(result).toMatchObject({ accepted: ['ada@example.com'], attempts: 1, messageId: expect.stringMatching(/@example\.com>$/) });
 
       const mail = mailbox.assertSent({ to: 'ADA@example.com', subject: 'Hi' });
-      expect(mail.from).toEqual({ name: 'Acme Books', address: 'orders@acme.example' });
-      expect(mail.message.replyTo).toEqual([{ address: 'help@acme.example' }]);
+      expect(mail.from).toEqual({ name: 'Orders', address: 'orders@example.com' });
+      expect(mail.message.replyTo).toEqual([{ address: 'help@example.com' }]);
     });
 
     it('fails when there is no transport, naming the option', async () => {
@@ -157,13 +157,13 @@ describe('MailModule and Mailer', () => {
           inject: [CONFIG],
           useFactory: (config: { shopUrl: string }) => ({
             transport: new InMemoryMailTransport(),
-            from: `Shop <shop@${new URL(config.shopUrl).host}>`,
+            from: `Orders <orders@${new URL(config.shopUrl).host}>`,
           }),
         }),
       ]);
 
       await moduleRef!.get(Mailer).send({ to: 'a@example.com', subject: 's', text: 't' });
-      expect((moduleRef!.get(MailTransport) as InMemoryMailTransport).assertSent().from.address).toBe('shop@acme.example');
+      expect((moduleRef!.get(MailTransport) as InMemoryMailTransport).assertSent().from.address).toBe('orders@shop.example.com');
     });
 
     it('forRootAsync(): a transport class at the top level is instantiated with DI', async () => {
@@ -180,7 +180,7 @@ describe('MailModule and Mailer', () => {
       }
 
       await compile([ConfigModule, MailModule.forRootAsync({ transport: ConfiguredTransport, useClass: Options })]);
-      expect((moduleRef!.get(MailTransport) as ConfiguredTransport).config.shopUrl).toBe('https://acme.example');
+      expect((moduleRef!.get(MailTransport) as ConfiguredTransport).config.shopUrl).toBe('https://shop.example.com');
     });
 
     it('forRootAsync(): a class returned by the factory, or a transport set twice, fails at startup', async () => {
@@ -253,7 +253,7 @@ describe('MailModule and Mailer', () => {
       expect(mail.text).toContain('- Dune & Co × 2');
       expect(mail.headers).toEqual({ 'X-Order-Id': '42' });
       expect(mail.link('/orders/').pathname).toBe('/orders/42');
-      expect(mail.links).toEqual(['https://acme.example/orders/42']);
+      expect(mail.links).toEqual(['https://shop.example.com/orders/42']);
     });
 
     it('creates mail classes that are not providers', async () => {
@@ -265,22 +265,22 @@ describe('MailModule and Mailer', () => {
         ['Welcome', WelcomeMail],
         ['Newsletter #7', NewsletterMail],
       ]);
-      expect(mailbox.assertSent({ mail: NewsletterMail }).link().href).toBe('https://acme.example/n/7');
+      expect(mailbox.assertSent({ mail: NewsletterMail }).link().href).toBe('https://shop.example.com/n/7');
     });
 
     it('lets send() override and extend what render() returned', async () => {
       await moduleRef!.get(Mailer).send(OrderConfirmationMail, {
         to: [{ name: 'Zoë', address: 'zoe@example.com' }],
-        bcc: 'audit@acme.example',
-        from: 'Acme Support <support@acme.example>',
+        bcc: 'audit@example.com',
+        from: 'Support <support@example.com>',
         data: order,
         attachments: [{ filename: 'invoice-42.pdf', content: Buffer.from('%PDF') }],
         headers: { 'X-Campaign': 'none' },
       });
 
       const mail = mailbox.assertSent();
-      expect(mail.from.address).toBe('support@acme.example');
-      expect(mail.bcc).toEqual([{ address: 'audit@acme.example' }]);
+      expect(mail.from.address).toBe('support@example.com');
+      expect(mail.bcc).toEqual([{ address: 'audit@example.com' }]);
       expect(mail.attachment('invoice-42.pdf').contentType).toBe('application/pdf');
       expect(mail.headers).toEqual({ 'X-Order-Id': '42', 'X-Campaign': 'none' });
       expect(parseMessage(mail.raw).type).toBe('multipart/mixed');
@@ -520,7 +520,7 @@ describe('MailModule and Mailer', () => {
       @Module({
         imports: [
           ConfigModule,
-          MailModule.forRoot({ transport: new SmtpTransport({ host: 'smtp.acme.example', auth: { user: 'u', pass: 'p' } }), from: FROM }),
+          MailModule.forRoot({ transport: new SmtpTransport({ host: 'smtp.example.com', auth: { user: 'u', pass: 'p' } }), from: FROM }),
           OrdersModule,
         ],
       })
@@ -536,7 +536,7 @@ describe('MailModule and Mailer', () => {
         /Expected a mail to nobody@example\.com, but none was sent\. Sent:\n {2}- "Order #7" to zoe@example\.com \(OrderConfirmationMail\)/,
       );
       expect(() => mailbox.assertNotSent({ mail: OrderConfirmationMail })).toThrow(/Expected no mail rendered by OrderConfirmationMail/);
-      expect(() => mailbox.assertSent().link('/reset')).toThrow(/No link matching \/reset in the mail "Order #7"\. Links: https:\/\/acme\.example\/orders\/7/);
+      expect(() => mailbox.assertSent().link('/reset')).toThrow(/No link matching \/reset in the mail "Order #7"\. Links: https:\/\/shop\.example\.com\/orders\/7/);
 
       mailbox.failNext(new MailSmtpError('DATA', { code: 554, text: 'Rejected' }));
       await expect(moduleRef.get(Mailer).send({ to: 'a@example.com', subject: 's', text: 't' })).rejects.toThrow(/554/);
@@ -578,13 +578,13 @@ describe('MailModule and Mailer', () => {
       await moduleRef!.get(Mailer).send({
         to: 'a@example.com',
         subject: 'Sign in',
-        html: '<a href="https://acme.example/magic?token=abc">Sign in</a>',
+        html: '<a href="https://shop.example.com/magic?token=abc">Sign in</a>',
         attachments: [{ filename: 'a.txt', content: 'x' }],
       });
 
       expect(lines).toEqual([
         ['log', '"Sign in" to a@example.com with 1 attachment(s): a.txt'],
-        ['debug', 'Sign in (https://acme.example/magic?token=abc)'],
+        ['debug', 'Sign in (https://shop.example.com/magic?token=abc)'],
       ]);
     });
   });

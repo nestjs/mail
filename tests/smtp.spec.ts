@@ -16,7 +16,7 @@ import { isLoopback, toSmtpData } from '../lib/smtp/smtp-connection.js';
 import { type FakeSmtpOptions, FakeSmtpServer } from './support/fake-smtp-server.js';
 import { parseMessage } from './support/mime-parser.js';
 
-const USERS = { 'mailer@acme.example': 's3cret-pass', 'oauth@acme.example': 'ya29.token' };
+const USERS = { 'mailer@example.com': 's3cret-pass', 'oauth@example.com': 'ya29.token' };
 const signal = () => new AbortController().signal;
 
 /** QUIT goes out after send() resolves: wait for it. */
@@ -32,7 +32,7 @@ async function until(condition: () => boolean, ms = 2_000) {
 function message(input: Partial<NormalizeInput> = {}) {
   return createMailMessage(
     { to: 'ada@example.com', subject: 'Order #42', text: 'Thanks for your order.', ...input },
-    { from: 'Acme Books <orders@acme.example>' },
+    { from: 'Orders <orders@example.com>' },
   );
 }
 
@@ -51,7 +51,7 @@ describe('SmtpTransport', () => {
       port: server.port,
       startTls: 'required',
       tls: { ca: server.certificate.cert },
-      auth: { user: 'mailer@acme.example', pass: 's3cret-pass' },
+      auth: { user: 'mailer@example.com', pass: 's3cret-pass' },
       ...options,
     });
 
@@ -77,7 +77,7 @@ describe('SmtpTransport', () => {
       expect(session.commands.map((c) => c.split(' ')[0])).toEqual(['EHLO', 'STARTTLS', 'EHLO', 'AUTH', 'MAIL', 'RCPT', 'DATA', 'QUIT']);
 
       const [transaction] = server.transactions;
-      expect(transaction).toMatchObject({ from: 'orders@acme.example', to: ['ada@example.com'], secure: true, user: 'mailer@acme.example' });
+      expect(transaction).toMatchObject({ from: 'orders@example.com', to: ['ada@example.com'], secure: true, user: 'mailer@example.com' });
       expect(transaction.params).toEqual([`SIZE=${mail.toMime().length}`]);
       expect(`${transaction.data}\r\n`).toBe(mail.toMime().toString('utf8'));
     });
@@ -144,9 +144,9 @@ describe('SmtpTransport', () => {
     });
 
     it.each([
-      ['PLAIN', ['PLAIN'], { user: 'mailer@acme.example', pass: 's3cret-pass' }],
-      ['LOGIN', ['LOGIN'], { user: 'mailer@acme.example', pass: 's3cret-pass' }],
-      ['XOAUTH2', ['XOAUTH2'], { user: 'oauth@acme.example', accessToken: async () => 'ya29.token' }],
+      ['PLAIN', ['PLAIN'], { user: 'mailer@example.com', pass: 's3cret-pass' }],
+      ['LOGIN', ['LOGIN'], { user: 'mailer@example.com', pass: 's3cret-pass' }],
+      ['XOAUTH2', ['XOAUTH2'], { user: 'oauth@example.com', accessToken: async () => 'ya29.token' }],
     ] as const)('authenticates with AUTH %s', async (_name, mechanisms, auth) => {
       await start({ authMechanisms: [...mechanisms] });
       await transport({ auth }).send(await message(), { signal: signal(), attempt: 1 });
@@ -155,7 +155,7 @@ describe('SmtpTransport', () => {
 
     it('reports refused credentials as a permanent error without the password', async () => {
       await start();
-      const error = await transport({ auth: { user: 'mailer@acme.example', pass: 'wrong-password' } })
+      const error = await transport({ auth: { user: 'mailer@example.com', pass: 'wrong-password' } })
         .send(await message(), { signal: signal(), attempt: 1 })
         .catch((e) => e);
 
@@ -167,7 +167,7 @@ describe('SmtpTransport', () => {
 
     it('answers an XOAUTH2 error challenge with an empty line, then reports the 535', async () => {
       await start({ authMechanisms: ['XOAUTH2'] });
-      const error = await transport({ auth: { user: 'oauth@acme.example', accessToken: 'expired' } })
+      const error = await transport({ auth: { user: 'oauth@example.com', accessToken: 'expired' } })
         .send(await message(), { signal: signal(), attempt: 1 })
         .catch((e) => e);
 
@@ -275,7 +275,7 @@ describe('SmtpTransport', () => {
     it('signs with DKIM so the received message verifies', async () => {
       await start();
       const { privateKey, publicKey } = generateKeyPairSync('ed25519');
-      await transport({ dkim: { domainName: 'acme.example', keySelector: 's1', privateKey } }).send(
+      await transport({ dkim: { domainName: 'example.com', keySelector: 's1', privateKey } }).send(
         await message({ html: '<p>Signed</p>' }),
         { signal: signal(), attempt: 1 },
       );
@@ -500,12 +500,12 @@ describe('SmtpTransport', () => {
 
   describe('configuration', () => {
     it('parses an smtp(s) URL (percent-encoded user and password), and never repeats it in errors', async () => {
-      await start({ implicitTls: true, users: { 'mailer@acme.example': 'p@ss:word' } });
-      const t = new SmtpTransport({ url: `smtps://mailer%40acme.example:p%40ss%3Aword@127.0.0.1:${server.port}`, tls: { ca: server.certificate.cert } });
+      await start({ implicitTls: true, users: { 'mailer@example.com': 'p@ss:word' } });
+      const t = new SmtpTransport({ url: `smtps://mailer%40example.com:p%40ss%3Aword@127.0.0.1:${server.port}`, tls: { ca: server.certificate.cert } });
       transports.push(t);
 
       await t.send(await message(), { signal: signal(), attempt: 1 });
-      expect(server.transactions[0]).toMatchObject({ secure: true, user: 'mailer@acme.example' });
+      expect(server.transactions[0]).toMatchObject({ secure: true, user: 'mailer@example.com' });
 
       const secret = 'hunter2-very-secret';
       for (const url of [`ftp://u:${secret}@h`, `smtp://u:${secret}@h/path`, `smtp://u:${secret}@h?x=1`, `smtp://u:%E0%A4%A@h`]) {
@@ -521,7 +521,7 @@ describe('SmtpTransport', () => {
     });
 
     it('keeps credentials out of logs: inspecting a transport shows none', () => {
-      const t = new SmtpTransport({ host: 'smtp.acme.example', auth: { user: 'mailer', pass: 'hunter2-very-secret' } });
+      const t = new SmtpTransport({ host: 'smtp.example.com', auth: { user: 'mailer', pass: 'hunter2-very-secret' } });
       expect(inspect(t, { depth: 10, showHidden: true })).not.toContain('hunter2');
       expect(JSON.stringify(t)).not.toContain('hunter2');
     });
@@ -540,7 +540,7 @@ describe('SmtpTransport', () => {
       await start();
       await transport().verify();
       expect(server.sessions[0].commands.map((c) => c.split(' ')[0])).toEqual(['EHLO', 'STARTTLS', 'EHLO', 'AUTH', 'QUIT']);
-      await expect(transport({ auth: { user: 'mailer@acme.example', pass: 'nope' } }).verify()).rejects.toBeInstanceOf(MailError);
+      await expect(transport({ auth: { user: 'mailer@example.com', pass: 'nope' } }).verify()).rejects.toBeInstanceOf(MailError);
     });
   });
 });

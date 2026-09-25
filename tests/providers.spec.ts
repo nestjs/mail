@@ -52,8 +52,8 @@ beforeAll(async () => {
     {
       to: [{ name: 'Zoë, Ł.', address: 'zoe@example.com' }, 'ada@example.com'],
       cc: 'cc@example.com',
-      bcc: 'audit@acme.example',
-      replyTo: 'Support <support@acme.example>',
+      bcc: 'audit@example.com',
+      replyTo: 'Support <support@example.com>',
       subject: 'Zamówienie #42',
       html: '<p>Dziękujemy</p><img src="cid:logo">',
       attachments: [
@@ -62,7 +62,7 @@ beforeAll(async () => {
       ],
       headers: { 'X-Order': '42' },
     },
-    { from: 'Acme Books <orders@acme.example>' },
+    { from: 'Orders <orders@example.com>' },
   );
 });
 
@@ -72,7 +72,7 @@ describe('ResendTransport', () => {
     const transport = new ResendTransport({ apiKey: 're_test', fetch });
     const result = await transport.send(message, { ...send, idempotencyKey: 'outbox:0193' });
 
-    expect(result).toEqual({ accepted: ['zoe@example.com', 'ada@example.com', 'cc@example.com', 'audit@acme.example'], providerMessageId: '49a3999c' });
+    expect(result).toEqual({ accepted: ['zoe@example.com', 'ada@example.com', 'cc@example.com', 'audit@example.com'], providerMessageId: '49a3999c' });
 
     const [request] = requests;
     expect(request.url).toBe('https://api.resend.com/emails');
@@ -84,11 +84,11 @@ describe('ResendTransport', () => {
       'user-agent': 'nestjs-mail',
     });
     expect(request.body).toEqual({
-      from: 'Acme Books <orders@acme.example>',
+      from: 'Orders <orders@example.com>',
       to: ['"Zoë, Ł." <zoe@example.com>', 'ada@example.com'],
       cc: ['cc@example.com'],
-      bcc: ['audit@acme.example'],
-      reply_to: ['Support <support@acme.example>'],
+      bcc: ['audit@example.com'],
+      reply_to: ['Support <support@example.com>'],
       subject: 'Zamówienie #42',
       html: '<p>Dziękujemy</p><img src="cid:logo">',
       text: 'Dziękujemy',
@@ -102,7 +102,7 @@ describe('ResendTransport', () => {
 
   it('needs a to, as Resend does, before any request', async () => {
     const { fetch, requests } = stubFetch(() => Response.json({ id: 'x' }));
-    const bccOnly = await createMailMessage({ bcc: 'a@example.com', subject: 's', text: 'x' }, { from: 'a@acme.example' });
+    const bccOnly = await createMailMessage({ bcc: 'a@example.com', subject: 's', text: 'x' }, { from: 'a@example.com' });
     await expect(new ResendTransport({ apiKey: 're_test', fetch }).send(bccOnly, send)).rejects.toThrow(MailMessageError);
     expect(requests).toEqual([]);
   });
@@ -121,12 +121,12 @@ describe('ResendTransport', () => {
     [409, 'invalid_idempotent_request', true],
     [500, 'application_error', false],
   ])('maps %i %s to permanent=%s', async (status, name, permanent) => {
-    const { fetch } = stubFetch(() => Response.json({ statusCode: status, name, message: 'The acme.example domain is not verified.' }, { status }));
+    const { fetch } = stubFetch(() => Response.json({ statusCode: status, name, message: 'The example.com domain is not verified.' }, { status }));
     const error = await new ResendTransport({ apiKey: 're_secret_key', fetch }).send(message, send).catch((e) => e);
 
     expect(error).toBeInstanceOf(MailProviderError);
     expect(error).toMatchObject({ provider: 'resend', code: status, providerCode: name, permanent });
-    expect(error.message).toBe(`resend refused the message with ${status} ${name}: The acme.example domain is not verified.`);
+    expect(error.message).toBe(`resend refused the message with ${status} ${name}: The example.com domain is not verified.`);
     expect(error.message).not.toContain('re_secret_key');
   });
 });
@@ -144,11 +144,11 @@ describe('PostmarkTransport', () => {
     expect(request.url).toBe('https://api.postmarkapp.com/email');
     expect(request.headers).toMatchObject({ accept: 'application/json', 'x-postmark-server-token': 'pm-token' });
     expect(request.body).toEqual({
-      From: 'Acme Books <orders@acme.example>',
+      From: 'Orders <orders@example.com>',
       To: '"Zoë, Ł." <zoe@example.com>, ada@example.com',
       Cc: 'cc@example.com',
-      Bcc: 'audit@acme.example',
-      ReplyTo: 'Support <support@acme.example>',
+      Bcc: 'audit@example.com',
+      ReplyTo: 'Support <support@example.com>',
       Subject: 'Zamówienie #42',
       HtmlBody: '<p>Dziękujemy</p><img src="cid:logo">',
       TextBody: 'Dziękujemy',
@@ -163,7 +163,7 @@ describe('PostmarkTransport', () => {
 
   it('leaves out an empty TextBody (an HTML mail of images only)', async () => {
     const { fetch, requests } = stubFetch(() => Response.json({ MessageID: 'm' }));
-    const imagesOnly = await createMailMessage({ to: 'a@example.com', subject: 's', html: '<img src="cid:x">', attachments: [{ cid: 'x', content: png }] }, { from: 'a@acme.example' });
+    const imagesOnly = await createMailMessage({ to: 'a@example.com', subject: 's', html: '<img src="cid:x">', attachments: [{ cid: 'x', content: png }] }, { from: 'a@example.com' });
     expect(imagesOnly.text).toBe('');
 
     await new PostmarkTransport({ serverToken: 't', fetch }).send(imagesOnly, send);
@@ -181,7 +181,7 @@ describe('PostmarkTransport', () => {
 
     await expect(transport.send(message, send)).rejects.toMatchObject({ code: 422, providerCode: '406', permanent: true });
 
-    const boom = await createMailMessage({ to: 'a@example.com', subject: 'boom', text: 'x' }, { from: 'a@acme.example' });
+    const boom = await createMailMessage({ to: 'a@example.com', subject: 'boom', text: 'x' }, { from: 'a@example.com' });
     await expect(transport.send(boom, send)).rejects.toMatchObject({ code: 500, providerCode: '101', permanent: false });
   });
 });
@@ -201,11 +201,11 @@ describe('SendGridTransport', () => {
         {
           to: [{ email: 'zoe@example.com', name: 'Zoë, Ł.' }, { email: 'ada@example.com' }],
           cc: [{ email: 'cc@example.com' }],
-          bcc: [{ email: 'audit@acme.example' }],
+          bcc: [{ email: 'audit@example.com' }],
         },
       ],
-      from: { email: 'orders@acme.example', name: 'Acme Books' },
-      reply_to_list: [{ email: 'support@acme.example', name: 'Support' }],
+      from: { email: 'orders@example.com', name: 'Orders' },
+      reply_to_list: [{ email: 'support@example.com', name: 'Support' }],
       subject: 'Zamówienie #42',
       content: [
         { type: 'text/plain', value: 'Dziękujemy' },
@@ -227,7 +227,7 @@ describe('SendGridTransport', () => {
       'sendgrid refused the message with 403: from: The from address does not match a verified Sender Identity.',
     );
 
-    const bccOnly = await createMailMessage({ bcc: 'a@example.com', subject: 's', text: 't' }, { from: 'a@acme.example' });
+    const bccOnly = await createMailMessage({ bcc: 'a@example.com', subject: 's', text: 't' }, { from: 'a@example.com' });
     await expect(new SendGridTransport({ apiKey: 'k', fetch }).send(bccOnly, send)).rejects.toThrow(MailMessageError);
   });
 });
@@ -244,14 +244,14 @@ describe('SesTransport', () => {
     const [request] = requests;
     expect(request.url).toBe('https://email.eu-west-1.amazonaws.com/v2/email/outbound-emails');
     expect(request.body).toMatchObject({
-      FromEmailAddress: 'orders@acme.example',
-      Destination: { ToAddresses: ['zoe@example.com', 'ada@example.com'], CcAddresses: ['cc@example.com'], BccAddresses: ['audit@acme.example'] },
+      FromEmailAddress: 'orders@example.com',
+      Destination: { ToAddresses: ['zoe@example.com', 'ada@example.com'], CcAddresses: ['cc@example.com'], BccAddresses: ['audit@example.com'] },
       ConfigurationSetName: 'transactional',
     });
 
     const mime = Buffer.from(request.body.Content.Raw.Data, 'base64').toString('utf8');
     expect(parseMessage(mime).type).toBe('multipart/mixed');
-    expect(mime).not.toContain('audit@acme.example'); // Bcc only in the envelope
+    expect(mime).not.toContain('audit@example.com'); // Bcc only in the envelope
 
     // Recompute the signature from the request as sent: a second, plain implementation
     const amzDate = request.headers['x-amz-date'];

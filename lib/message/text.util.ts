@@ -42,7 +42,7 @@ const ATTRIBUTE = (name: string) => new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|
  * A plain-text version of an HTML body, for the `text/plain` alternative when a mail
  * has none: paragraphs and headings become blank-line separated blocks, list items get a
  * `- ` bullet, table cells are separated by spaces, and links keep their target:
- * `Track your order (https://acme.example/orders/42)`.
+ * `Track your order (https://shop.example.com/orders/42)`.
  */
 export function htmlToText(source: string): string {
   let text = source

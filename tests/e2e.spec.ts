@@ -51,7 +51,7 @@ class PasswordResetsController {
   @Post()
   @HttpCode(202)
   async request(@Body() body: { email: string; name: string }) {
-    const url = new URL('https://acme.example/reset-password');
+    const url = new URL('https://shop.example.com/reset-password');
     url.searchParams.set('token', signToken(body.email, Date.now() + 30 * 60_000));
     url.searchParams.set('lang', 'en&pl'); // escaped as &amp; in the HTML, decoded again by link()
     await this.mailer.send(PasswordResetMail, { to: { name: body.name, address: body.email }, data: { url: url.href, name: body.name } });
@@ -69,7 +69,7 @@ class PasswordResetsController {
 }
 
 @Module({
-  imports: [MailModule.forRoot({ transport: new SmtpTransport({ host: 'smtp.acme.example' }), from: 'Acme Books <no-reply@acme.example>' })],
+  imports: [MailModule.forRoot({ transport: new SmtpTransport({ host: 'smtp.example.com' }), from: 'Accounts <accounts@example.com>' })],
   controllers: [PasswordResetsController],
   providers: [PasswordResetMail],
 })

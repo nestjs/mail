@@ -70,7 +70,7 @@ export interface SmtpPoolOptions {
 
 /** DKIM signing (RFC 6376), relaxed/relaxed, with `rsa-sha256` or `ed25519-sha256` (RFC 8463). */
 export interface DkimOptions {
-  /** The signing domain (`d=`), usually the `From` address's domain: `acme.example`. */
+  /** The signing domain (`d=`), usually the `From` address's domain: `example.com`. */
   domainName: string;
   /** The selector (`s=`): the public key is published at `<selector>._domainkey.<domainName>`. */
   keySelector: string;

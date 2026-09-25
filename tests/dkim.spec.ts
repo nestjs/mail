@@ -153,14 +153,14 @@ describe('DKIM signing', () => {
         attachments: [{ filename: 'faktura.pdf', content: Buffer.alloc(3000, 1) }],
         headers: { 'X-Order': '42' },
       },
-      { from: 'Acme Books <orders@acme.example>' },
+      { from: 'Orders <orders@example.com>' },
     );
   }
 
   it.each(['rsa', 'ed25519'] as const)('signs with %s so that a verifier accepts it', async (type) => {
     const { privateKey, publicKey } =
       type === 'rsa' ? generateKeyPairSync('rsa', { modulusLength: 2048 }) : generateKeyPairSync('ed25519');
-    const sign = createDkimSigner({ domainName: 'acme.example', keySelector: 'mail2026', privateKey }, 'SmtpTransport');
+    const sign = createDkimSigner({ domainName: 'example.com', keySelector: 'mail2026', privateKey }, 'SmtpTransport');
 
     const signed = sign((await message()).toMime(), Date.UTC(2026, 8, 22) ).toString('utf8');
     const { sigs } = signatures(signed);
@@ -169,7 +169,7 @@ describe('DKIM signing', () => {
       v: '1',
       a: `${type}-sha256`,
       c: 'relaxed/relaxed',
-      d: 'acme.example',
+      d: 'example.com',
       s: 'mail2026',
       t: String(Date.UTC(2026, 8, 22) / 1000),
       h: 'from:reply-to:to:subject:date:message-id:mime-version:content-type:x-order:from'.replace('reply-to:', ''),
@@ -186,9 +186,9 @@ describe('DKIM signing', () => {
 
   it('signs Content-Transfer-Encoding when the message has one (a single-part body)', async () => {
     const { privateKey, publicKey } = generateKeyPairSync('ed25519');
-    const sign = createDkimSigner({ domainName: 'acme.example', keySelector: 's1', privateKey }, 'SmtpTransport');
+    const sign = createDkimSigner({ domainName: 'example.com', keySelector: 's1', privateKey }, 'SmtpTransport');
 
-    const plain = await createMailMessage({ to: 'a@example.com', subject: 'Hi', text: 'Hi there' }, { from: 'orders@acme.example' });
+    const plain = await createMailMessage({ to: 'a@example.com', subject: 'Hi', text: 'Hi there' }, { from: 'orders@example.com' });
     const signed = sign(plain.toMime()).toString('utf8');
 
     expect(signatures(signed).sigs[0].tags.h).toBe('from:to:subject:date:message-id:content-type:content-transfer-encoding:from'.replace('content-type', 'mime-version:content-type'));
@@ -198,7 +198,7 @@ describe('DKIM signing', () => {
 
   it('survives what relaxed canonicalization forgives: refolding and trailing whitespace', async () => {
     const { privateKey, publicKey } = generateKeyPairSync('ed25519');
-    const sign = createDkimSigner({ domainName: 'acme.example', keySelector: 's1', privateKey }, 'SmtpTransport');
+    const sign = createDkimSigner({ domainName: 'example.com', keySelector: 's1', privateKey }, 'SmtpTransport');
     const signed = sign((await message()).toMime()).toString('utf8');
     const refolded = signed.replace('Subject: ', 'Subject:   \r\n\t ').replace(/\r\n$/, '\r\n\r\n\r\n');
     expect(verifyDkim(refolded, publicKey)).toEqual({ bodyHash: true, signature: true });
@@ -207,7 +207,7 @@ describe('DKIM signing', () => {
   it('fails at startup on bad options, without echoing the key', () => {
     const { privateKey } = generateKeyPairSync('ed25519');
     const make = (options: object) => () =>
-      createDkimSigner({ domainName: 'acme.example', keySelector: 's1', privateKey, ...options }, 'SmtpTransport');
+      createDkimSigner({ domainName: 'example.com', keySelector: 's1', privateKey, ...options }, 'SmtpTransport');
 
     expect(make({ domainName: 'not a domain' })).toThrow(/dkim\.domainName/);
     expect(make({ keySelector: 'a b' })).toThrow(/dkim\.keySelector/);

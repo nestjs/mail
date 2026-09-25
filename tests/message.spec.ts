@@ -18,7 +18,7 @@ import {
   parseMessage,
 } from './support/mime-parser.js';
 
-const FROM = 'Acme Books <orders@acme.example>';
+const FROM = 'Orders <orders@example.com>';
 
 async function build(input: Partial<NormalizeInput>) {
   return createMailMessage({ subject: 'Hello', text: 'Hi', to: 'ada@example.com', ...input }, { from: FROM });
@@ -146,20 +146,20 @@ describe('MIME structure', () => {
     expect(parsed.body.toString()).toBe('Hi there\r\n');
     expect(header(parsed.headers, 'mime-version')).toBe('1.0');
     expect(header(parsed.headers, 'date')).toMatch(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} [A-Z][a-z]{2} \d{4} \d{2}:\d{2}:\d{2} \+0000$/);
-    expect(header(parsed.headers, 'message-id')).toMatch(/^<[0-9a-f-]{36}@acme\.example>$/);
+    expect(header(parsed.headers, 'message-id')).toMatch(/^<[0-9a-f-]{36}@example\.com>$/);
     expect(raw.endsWith('\r\n')).toBe(true);
   });
 
   it('derives the text part from html and sends multipart/alternative, text first', async () => {
     const { parsed } = await roundTrip({
       text: undefined,
-      html: html`<h1>Order #42</h1><p>Thanks, ${'Zoë'}!</p><p><a href="https://acme.example/orders/42?x=1&amp;y=2">Track it</a></p>`,
+      html: html`<h1>Order #42</h1><p>Thanks, ${'Zoë'}!</p><p><a href="https://shop.example.com/orders/42?x=1&amp;y=2">Track it</a></p>`,
     });
 
     expect(parsed.type).toBe('multipart/alternative');
     expect(parsed.parts.map((p) => p.type)).toEqual(['text/plain', 'text/html']);
     expect(parsed.parts[0].body.toString()).toBe(
-      'Order #42\r\n\r\nThanks, Zoë!\r\n\r\nTrack it (https://acme.example/orders/42?x=1&y=2)',
+      'Order #42\r\n\r\nThanks, Zoë!\r\n\r\nTrack it (https://shop.example.com/orders/42?x=1&y=2)',
     );
     expect(parsed.parts[1].body.toString()).toContain('Thanks, Zoë!');
   });
@@ -169,9 +169,9 @@ describe('MIME structure', () => {
     const pdf = Buffer.from('%PDF-1.4 binary \x00\xff', 'latin1');
 
     const { parsed } = await roundTrip({
-      html: '<p><img src="cid:logo@acme"></p>',
+      html: '<p><img src="cid:logo@example.com"></p>',
       attachments: [
-        { filename: 'logo.png', content: png, cid: 'logo@acme' },
+        { filename: 'logo.png', content: png, cid: 'logo@example.com' },
         { filename: 'invoice 42.pdf', content: pdf },
       ],
     });
@@ -184,7 +184,7 @@ describe('MIME structure', () => {
     const [htmlPart, logo] = alternative.parts[1].parts;
     expect(htmlPart.type).toBe('text/html');
     expect(logo.type).toBe('image/png');
-    expect(header(logo.headers, 'content-id')).toBe('<logo@acme>');
+    expect(header(logo.headers, 'content-id')).toBe('<logo@example.com>');
     expect(header(logo.headers, 'content-disposition')).toMatch(/^inline;/);
     expect(logo.body.equals(png)).toBe(true);
 
@@ -224,7 +224,7 @@ describe('MIME structure', () => {
 
     expect(raw.toLowerCase()).not.toContain('bcc');
     expect(raw).not.toContain('secret@example.com');
-    expect(message.envelope).toEqual({ from: 'orders@acme.example', to: ['a@example.com', 'B@example.com', 'c@example.com', 'secret@example.com'] });
+    expect(message.envelope).toEqual({ from: 'orders@example.com', to: ['a@example.com', 'B@example.com', 'c@example.com', 'secret@example.com'] });
   });
 
   it('derives a stable Message-ID from the idempotency key', async () => {
@@ -234,7 +234,7 @@ describe('MIME structure', () => {
 
     expect(a.messageId).toBe(b.messageId);
     expect(a.messageId).not.toBe(c.messageId);
-    expect(a.messageId).toMatch(/^<[A-Za-z0-9_-]{32}@acme\.example>$/);
+    expect(a.messageId).toMatch(/^<[A-Za-z0-9_-]{32}@example\.com>$/);
   });
 });
 
@@ -279,10 +279,10 @@ describe('header encoding', () => {
   });
 
   it('writes custom headers, encoding non-ASCII values', async () => {
-    const { parsed } = await roundTrip({ headers: { 'X-Campaign': 'Jesień 2026', 'List-Unsubscribe': '<https://acme.example/u?t=1>' } });
+    const { parsed } = await roundTrip({ headers: { 'X-Campaign': 'Jesień 2026', 'List-Unsubscribe': '<https://shop.example.com/u?t=1>' } });
     expect(decodeWords(header(parsed.headers, 'x-campaign')!)).toBe('Jesień 2026');
-    expect(header(parsed.headers, 'list-unsubscribe')).toBe('<https://acme.example/u?t=1>');
-    expect(headerAll(parsed.headers, 'from')).toEqual(['Acme Books <orders@acme.example>']);
+    expect(header(parsed.headers, 'list-unsubscribe')).toBe('<https://shop.example.com/u?t=1>');
+    expect(headerAll(parsed.headers, 'from')).toEqual(['Orders <orders@example.com>']);
   });
 });
 
@@ -343,7 +343,7 @@ describe('an independent parser: Python email (policy=default)', () => {
       subject: '📦 Zamówienie #42 — wysłane, dziękujemy! '.repeat(3).trim(),
       to: [{ name: 'Zoë "Z" Łukasiewicz, PhD', address: 'zoe@example.com' }, 'Ada <ada@bücher.example>'],
       cc: { name: '山田 太郎', address: 'taro@example.jp' },
-      replyTo: 'Support <support@acme.example>',
+      replyTo: 'Support <support@example.com>',
       html: html`<p>Cześć ${'Zoë'}!</p><img src="cid:logo">`,
       attachments: [
         { cid: 'logo', filename: 'logo.png', content: png },
@@ -388,7 +388,7 @@ print(json.dumps(out))
         ['Ada', 'ada@xn--bcher-kva.example'],
       ]);
       expect(result.cc).toEqual([['山田 太郎', 'taro@example.jp']]);
-      expect(result.reply_to).toEqual([['Support', 'support@acme.example']]);
+      expect(result.reply_to).toEqual([['Support', 'support@example.com']]);
       expect(result.campaign).toBe('Jesień 2026');
 
       const parts = result.parts.map(([type, filename, cid, b64]: string[]) => [type, filename, cid, b64 && Buffer.from(b64, 'base64').toString('utf8')]);
@@ -466,12 +466,12 @@ describe('text and links', () => {
       <p>Hi Ada,<br>thanks &amp; welcome&nbsp;back.</p>
       <ul><li>Dune &times; 2</li><li>Neuromancer</li></ul>
       <table><tr><td>Total</td><td>25.98</td></tr></table>
-      <p><a href="https://acme.example/orders/42">https://acme.example/orders/42</a> or <a href="mailto:help@acme.example">email us</a></p>
+      <p><a href="https://shop.example.com/orders/42">https://shop.example.com/orders/42</a> or <a href="mailto:help@example.com">email us</a></p>
       <script>alert(1)</script></body></html>`);
 
     expect(text).toBe(
       'Order confirmed\n\nHi Ada,\nthanks & welcome back.\n\n- Dune × 2\n- Neuromancer\n\nTotal 25.98\n\n' +
-        'https://acme.example/orders/42 or email us (help@acme.example)',
+        'https://shop.example.com/orders/42 or email us (help@example.com)',
     );
   });
 
