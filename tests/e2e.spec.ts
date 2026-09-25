@@ -1,11 +1,14 @@
 import { Body, Controller, HttpCode, Injectable, Module, Post, UnauthorizedException, type INestApplication } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import diagnostics from 'node:diagnostics_channel';
 import request from 'supertest';
 import { adapters, createApp } from './support/adapters.js';
 import {
   html,
   InMemoryMailTransport,
   type Mailable,
+  type MailEvent,
+  MailEvents,
   Mailer,
   MailModule,
   MailTransport,
@@ -140,5 +143,70 @@ describe.each(adapters)('an app sending through a real SMTP exchange ($name)', (
 
     await app.close();
     expect(server.sessions[0].commands.at(-1)).toBe('QUIT');
+  });
+});
+
+/** Sends under a signal the app aborts when it stops accepting work, as a drain before shutdown does. */
+@Injectable()
+class Outgoing {
+  readonly controller = new AbortController();
+}
+
+@Controller('receipts')
+class ReceiptsController {
+  constructor(
+    private readonly mailer: Mailer,
+    private readonly outgoing: Outgoing,
+  ) {}
+
+  @Post()
+  @HttpCode(202)
+  async send(@Body() body: { email: string }) {
+    await this.mailer.send({ to: body.email, subject: 'Your receipt', text: 'Thanks!', signal: this.outgoing.controller.signal });
+  }
+}
+
+@Module({
+  imports: [MailModule.forRoot({ transport: new InMemoryMailTransport(), from: 'Orders <orders@example.com>' })],
+  controllers: [ReceiptsController],
+  providers: [Outgoing],
+})
+class ReceiptsModule {}
+
+describe.each(adapters)('a send whose signal already aborted ($name)', ({ name }) => {
+  let app: INestApplication;
+  let mailbox: InMemoryMailTransport;
+
+  beforeEach(async () => {
+    mailbox = new InMemoryMailTransport();
+    app = await createApp(name, ReceiptsModule, {
+      override: (builder) => builder.overrideProvider(MailTransport).useValue(mailbox),
+      setup: (app) => app.useLogger(false),
+    });
+  });
+  afterEach(() => app.close());
+
+  it('fails the request, sends nothing, and reports it as failed on events$ and the diagnostics channel', async () => {
+    const events: MailEvent[] = [];
+    const published: unknown[] = [];
+    const subscription = app.get(MailEvents).events$.subscribe((event) => events.push(event));
+    const onFailed = (message: unknown) => published.push(message);
+    diagnostics.subscribe('nestjs:mail:failed', onFailed);
+
+    try {
+      const reason = new Error('draining');
+      app.get(Outgoing).controller.abort(reason);
+
+      await request(app.getHttpServer()).post('/receipts').send({ email: 'ada@example.com' }).expect(500);
+
+      expect(mailbox.mails).toEqual([]);
+      expect(events).toEqual([
+        expect.objectContaining({ type: 'failed', recipients: ['ada@example.com'], subject: 'Your receipt', attempts: 0, error: reason }),
+      ]);
+      expect(published).toEqual([expect.objectContaining({ type: 'failed', attempts: 0, error: reason })]);
+    } finally {
+      subscription.unsubscribe();
+      diagnostics.unsubscribe('nestjs:mail:failed', onFailed);
+    }
   });
 });

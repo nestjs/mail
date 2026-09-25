@@ -10,10 +10,14 @@ export function selfSignedCertificate(commonName = 'localhost'): { key: string; 
   const ecdsaWithSha256 = seq(oid('1.2.840.10045.4.3.2'));
   const name = seq(set(seq(oid('2.5.4.3'), utf8(commonName))));
   const now = Date.now();
+  // DER integers are minimal: a serial starting with 0x00 then a byte below 0x80 is "illegal
+  // padding" to OpenSSL, which made about one certificate in 512 unusable
+  const serial = randomBytes(8);
+  serial[0] = (serial[0] & 0x7f) | 0x01;
 
   const tbs = seq(
     explicit(0, int(Buffer.from([2]))),
-    int(randomBytes(8)),
+    int(serial),
     ecdsaWithSha256,
     name,
     seq(utcTime(new Date(now - 60_000)), utcTime(new Date(now + 86_400_000))),
