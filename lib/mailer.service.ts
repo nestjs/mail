@@ -165,9 +165,13 @@ export class Mailer {
     };
 
     const started = performance.now();
+    // Attempts the transport saw: a signal aborted before the first one fails the send with 0.
+    let attempts = 0;
     for (let attempt = 1; ; attempt++) {
-      signal.throwIfAborted();
       try {
+        // Inside the try, so an abort before an attempt is reported as `failed` like any other end.
+        signal.throwIfAborted();
+        attempts = attempt;
         const result = await this.transport.send(message, {
           signal,
           attempt,
@@ -211,7 +215,7 @@ export class Mailer {
         this.events.emit({
           type: 'failed',
           ...base,
-          attempts: attempt,
+          attempts,
           durationMs: Math.round(performance.now() - started),
           error,
           permanent: !isTransient(error),
