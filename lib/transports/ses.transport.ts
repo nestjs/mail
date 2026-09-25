@@ -90,7 +90,7 @@ export class SesTransport extends HttpProviderTransport {
     return { accepted: message.envelope.to, providerMessageId: field(response.body, 'MessageId') };
   }
 
-  protected toError({ status, body, headers }: ProviderResponse): MailProviderError {
+  protected toError({ status, body, headers, retryAfterMs }: ProviderResponse): MailProviderError {
     // `x-amzn-ErrorType` looks like `Name:http://...`; a body `__type` like `com.amazon...#Name`
     const raw = headers.get('x-amzn-errortype') ?? field(body, 'code', 'Code', '__type') ?? '';
     const code = raw.split(':', 1)[0].split('#').pop() || undefined;
@@ -102,6 +102,7 @@ export class SesTransport extends HttpProviderTransport {
       providerCode: code,
       detail: field(body, 'message', 'Message') ?? (typeof body === 'string' ? body : undefined),
       ...(throttled && { permanent: false }),
+      retryAfterMs,
     });
   }
 }

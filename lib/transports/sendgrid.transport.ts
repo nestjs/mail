@@ -71,13 +71,13 @@ export class SendGridTransport extends HttpProviderTransport {
     return { accepted: message.envelope.to, providerMessageId: response.headers.get('x-message-id') ?? undefined };
   }
 
-  protected toError({ status, body }: ProviderResponse): MailProviderError {
+  protected toError({ status, body, retryAfterMs }: ProviderResponse): MailProviderError {
     const errors = (body as { errors?: { message?: string; field?: string | null }[] } | undefined)?.errors;
     const detail = Array.isArray(errors)
       ? errors.map((e) => (e.field ? `${e.field}: ${e.message}` : e.message)).filter(Boolean).join('; ')
       : typeof body === 'string'
         ? body
         : undefined;
-    return new MailProviderError({ provider: 'sendgrid', status, detail });
+    return new MailProviderError({ provider: 'sendgrid', status, detail, retryAfterMs });
   }
 }

@@ -20,7 +20,7 @@ import type { MailMessage } from './message/mail-message.js';
 import { assertRecipients, createMailMessage, type NormalizeInput } from './message/normalize.util.js';
 import type { MailContent, MailRecipients, MailTemplateContent } from './interfaces/mail-message.interface.js';
 import { MailTemplateEngine } from './templates/mail-template.engine.js';
-import { backoffDelay, type ResolvedRetry, resolveRetry, sleep } from './utils/retry.util.js';
+import { type ResolvedRetry, resolveRetry, retryDelay, sleep } from './utils/retry.util.js';
 
 /**
  * Sends mail: a message written inline, or one rendered by a mail class.
@@ -32,8 +32,9 @@ import { backoffDelay, type ResolvedRetry, resolveRetry, sleep } from './utils/r
  * ```
  *
  * The whole message is validated before anything is sent (`MailMessageError`). Failures
- * that aren't `permanent` are retried with backoff (3 attempts by default); the final
- * error is thrown, and published as a `failed` event.
+ * that aren't `permanent` are retried with backoff (3 attempts by default), waiting at
+ * least as long as a provider's `Retry-After` asks, up to `maxDelay`; the final error is
+ * thrown, and published as a `failed` event.
  */
 @Injectable()
 export class Mailer {
@@ -275,7 +276,7 @@ export class Mailer {
             retryable = retry.retryIf(error, attempt) !== false;
           }
           if (retryable) {
-            await sleep(backoffDelay(retry, attempt, error), signal);
+            await sleep(retryDelay(retry, attempt, error), signal);
             continue;
           }
         } catch (abortOrCallbackError) {

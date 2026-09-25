@@ -65,13 +65,14 @@ export class PostmarkTransport extends HttpProviderTransport {
     return { accepted: message.envelope.to, providerMessageId: field(response.body, 'MessageID') };
   }
 
-  protected toError({ status, body, headers }: ProviderResponse): MailProviderError {
+  protected toError({ status, body, headers, retryAfterMs }: ProviderResponse): MailProviderError {
     // ErrorCode is Postmark's own numbering (406: inactive recipient, 300: invalid email), not the HTTP status
     return new MailProviderError({
       provider: 'postmark',
       status,
       providerCode: field(body, 'ErrorCode') ?? headers.get('x-pm-apierrorcode') ?? undefined,
       detail: field(body, 'Message') ?? (typeof body === 'string' ? body : undefined),
+      retryAfterMs,
     });
   }
 }

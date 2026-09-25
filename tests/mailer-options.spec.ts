@@ -10,6 +10,7 @@ import {
   type MailMessage,
   MailModule,
   type MailModuleOptions,
+  MailProviderError,
   type MailRenderContext,
   MailTransport,
   type MailTransportSendOptions,
@@ -107,6 +108,51 @@ describe('Mailer', () => {
       expect(transport.calls).toHaveLength(2);
       await vi.advanceTimersByTimeAsync(1);
       await expect(sending).resolves.toMatchObject({ attempts: 3 });
+    });
+
+    it("waits at least a provider's Retry-After before the next attempt", async () => {
+      vi.useFakeTimers();
+      const throttled = new MailProviderError({ provider: 'resend', status: 429, retryAfterMs: 5_000 });
+      const transport = new ScriptedTransport([throttled]);
+      const { mailer } = await setup(transport, { retry: { attempts: 2, backoff: { delay: '1s', jitter: 'none' } } });
+
+      const sending = mailer.send(mail);
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(transport.calls).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(sending).resolves.toMatchObject({ attempts: 2 });
+    });
+
+    it('caps the Retry-After wait at maxDelay', async () => {
+      vi.useFakeTimers();
+      const throttled = new MailProviderError({ provider: 'sendgrid', status: 503, retryAfterMs: 3_600_000 });
+      const transport = new ScriptedTransport([throttled]);
+      const { mailer } = await setup(transport, { retry: { attempts: 2, backoff: { delay: '1s', maxDelay: '10s', jitter: 'none' } } });
+
+      const sending = mailer.send(mail);
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(transport.calls).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(sending).resolves.toMatchObject({ attempts: 2 });
+    });
+
+    it('stops a Retry-After wait when the signal aborts', async () => {
+      vi.useFakeTimers();
+      const throttled = new MailProviderError({ provider: 'postmark', status: 429, retryAfterMs: 20_000 });
+      const transport = new ScriptedTransport([throttled]);
+      const { mailer, events } = await setup(transport, { retry: { attempts: 2, backoff: { delay: 0 } } });
+      const controller = new AbortController();
+      const reason = new Error('shutting down');
+
+      const sending = mailer.send({ ...mail, signal: controller.signal });
+      const outcome = sending.catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(1_000);
+      controller.abort(reason);
+
+      expect(await outcome).toBe(reason);
+      expect(transport.calls).toHaveLength(1);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(events).toEqual([expect.objectContaining({ type: 'failed', attempts: 1, error: reason })]);
     });
 
     it('retries errors a custom transport throws unless they say permanent or carry a 4xx status', async () => {

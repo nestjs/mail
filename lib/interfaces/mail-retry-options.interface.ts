@@ -4,7 +4,11 @@ import type { Duration } from './duration.interface.js';
 export interface MailRetryOptions {
   /** Total attempts, including the first. Default 3. */
   attempts?: number;
-  /** Waits between attempts, or a function of the attempt that just failed (1-based). */
+  /**
+   * Waits between attempts, or a function of the attempt that just failed (1-based). A
+   * provider's `Retry-After` lengthens the wait either way, up to `maxDelay` (`'30s'` with a
+   * function).
+   */
   backoff?: MailBackoffOptions | ((attempt: number, error: unknown) => Duration);
   /**
    * Asked about every failure the mailer would retry (errors that aren't `permanent`),
@@ -18,7 +22,10 @@ export interface MailBackoffOptions {
   delay?: Duration;
   /** Growth per retry; 1 = constant. Default 2. */
   factor?: number;
-  /** Cap for a single wait. Default `'30s'`. */
+  /**
+   * Cap for a single wait, also for a provider's `Retry-After` (the mailer waits at least
+   * that long, up to this). Default `'30s'`.
+   */
   maxDelay?: Duration;
   /** Default `'full'`. */
   jitter?: 'full' | 'equal' | 'none';

@@ -365,6 +365,37 @@ describe('every HTTP provider', () => {
     await expect(pending).rejects.toBe(reason);
   });
 
+  it.each([429, 503])("keeps a %i response's Retry-After as retryAfterMs, in seconds or as an HTTP date", async (status) => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-09-25T10:00:00Z'));
+    try {
+      for (const [value, retryAfterMs] of [
+        ['7', 7_000],
+        ['Fri, 25 Sep 2026 10:00:30 GMT', 30_000],
+      ] as const) {
+        const fetch = (async () => new Response('{}', { status, headers: { 'retry-after': value } })) as typeof globalThis.fetch;
+        for (const transport of transports(fetch)) {
+          const error = await transport.send(message, send).catch((e) => e);
+          expect(error).toBeInstanceOf(MailProviderError);
+          expect(error).toMatchObject({ code: status, permanent: false, retryAfterMs });
+        }
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('leaves retryAfterMs out without a Retry-After, or with a malformed one', async () => {
+    for (const headers of [{}, { 'retry-after': '1.5' }, { 'retry-after': 'soon' }]) {
+      const fetch = (async () => new Response('{}', { status: 429, headers })) as typeof globalThis.fetch;
+      for (const transport of transports(fetch)) {
+        const error = await transport.send(message, send).catch((e) => e);
+        expect(error).toBeInstanceOf(MailProviderError);
+        expect(error).not.toHaveProperty('retryAfterMs');
+      }
+    }
+  });
+
   it('reads at most 16 KiB of an error body', async () => {
     const fetch = (async () => new Response('x'.repeat(1_000_000), { status: 500 })) as typeof globalThis.fetch;
     for (const transport of transports(fetch)) {

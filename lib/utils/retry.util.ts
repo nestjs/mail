@@ -91,6 +91,28 @@ export function backoffDelay(retry: ResolvedRetry, attempt: number, error: unkno
   }
 }
 
+/**
+ * The wait after attempt `attempt` failed: the backoff, or longer when the error carries
+ * `retryAfterMs` (a provider's `Retry-After`). That wait is capped at `maxDelay` (its
+ * default with a backoff function), so a provider can't hold a send for minutes.
+ */
+export function retryDelay(retry: ResolvedRetry, attempt: number, error: unknown, random = Math.random): number {
+  const backoff = backoffDelay(retry, attempt, error, random);
+  const retryAfter = retryAfterOf(error);
+  if (retryAfter === undefined) {
+    return backoff;
+  }
+
+  const cap = typeof retry.backoff === 'function' ? DEFAULT_BACKOFF.maxDelay : retry.backoff.maxDelay;
+  return Math.max(backoff, Math.min(retryAfter, cap));
+}
+
+/** `retryAfterMs` of a `MailProviderError`, or of any error a custom transport throws with one. */
+function retryAfterOf(error: unknown): number | undefined {
+  const value = (error as { retryAfterMs?: unknown } | null | undefined)?.retryAfterMs;
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
 /** `toMs()` with the option's name in the error. */
 export function durationOption(value: Duration, option: string): number {
   let ms: number;

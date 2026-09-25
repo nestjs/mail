@@ -4,12 +4,15 @@ import { MailProviderError } from '../errors/mail-provider.error.js';
 import { MailTimeoutError } from '../errors/mail-timeout.error.js';
 import { MailTransport } from './mail.transport.js';
 import type { MailAddress } from '../interfaces/mail-message.interface.js';
+import { parseRetryAfter } from '../utils/retry-after.util.js';
 import { durationOption } from '../utils/retry.util.js';
 
 export interface ProviderResponse {
   status: number;
   headers: Headers;
   body: unknown;
+  /** The response's `Retry-After`, in ms from when it arrived. */
+  retryAfterMs?: number;
 }
 
 /** The longest error body read into an error: enough for any provider's JSON. */
@@ -63,9 +66,10 @@ export abstract class HttpProviderTransport extends MailTransport {
         throw this.networkError(error, signal, timer.signal, url);
       }
 
-      const result = { status: response.status, headers: response.headers, body: parseJson(text) };
+      const result: ProviderResponse = { status: response.status, headers: response.headers, body: parseJson(text) };
       if (!response.ok) {
-        throw this.toError(result);
+        const retryAfterMs = parseRetryAfter(response.headers.get('retry-after'), Date.now());
+        throw this.toError(retryAfterMs === undefined ? result : { ...result, retryAfterMs });
       }
       return result;
     } finally {

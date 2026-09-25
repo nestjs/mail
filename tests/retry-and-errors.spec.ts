@@ -8,7 +8,8 @@ import {
   MailTimeoutError,
 } from '../lib/index.js';
 import { toMs } from '../lib/utils/duration.util.js';
-import { backoffDelay, durationOption, resolveRetry, sleep } from '../lib/utils/retry.util.js';
+import { parseRetryAfter } from '../lib/utils/retry-after.util.js';
+import { backoffDelay, durationOption, resolveRetry, retryDelay, sleep } from '../lib/utils/retry.util.js';
 import { truncate } from '../lib/utils/truncate.util.js';
 
 describe('durations', () => {
@@ -95,6 +96,60 @@ describe('backoffDelay()', () => {
     expect(backoff).toHaveBeenCalledWith(2, error);
 
     expect(() => backoffDelay(resolveRetry({ backoff: () => -5 }, 'M'), 1, error)).toThrow(/retry\.backoff\(\): Invalid duration -5/);
+  });
+});
+
+describe('parseRetryAfter()', () => {
+  const now = Date.parse('2026-09-25T10:00:00Z');
+
+  it('reads seconds, and the three HTTP-date forms as GMT', () => {
+    expect(parseRetryAfter('7', now)).toBe(7_000);
+    expect(parseRetryAfter(' 0 ', now)).toBe(0);
+    expect(parseRetryAfter('Fri, 25 Sep 2026 10:00:30 GMT', now)).toBe(30_000);
+    expect(parseRetryAfter('Friday, 25-Sep-26 10:01:00 GMT', now)).toBe(60_000);
+    expect(parseRetryAfter('Fri Sep 25 10:00:05 2026', now)).toBe(5_000);
+  });
+
+  it('reads a date already past as no wait', () => {
+    expect(parseRetryAfter('Fri, 25 Sep 2026 09:00:00 GMT', now)).toBe(0);
+  });
+
+  it.each([null, undefined, '', 'soon', '1.5', '-3', '2026-09-25', 'Fri, 25 Sep 2026', '9'.repeat(400)])(
+    'ignores %j',
+    (value) => {
+      expect(parseRetryAfter(value, now)).toBeUndefined();
+    },
+  );
+});
+
+describe('retryDelay()', () => {
+  const retry = resolveRetry({ attempts: 5, backoff: { delay: 100, factor: 2, maxDelay: 2_000, jitter: 'none' } }, 'M');
+  const throttled = (retryAfterMs?: number) => new MailProviderError({ provider: 'resend', status: 429, retryAfterMs });
+
+  it('is the backoff without a retryAfterMs', () => {
+    expect(retryDelay(retry, 2, throttled())).toBe(200);
+    expect(retryDelay(retry, 2, new Error('reset'))).toBe(200);
+  });
+
+  it("waits at least the provider's Retry-After, up to maxDelay", () => {
+    expect(retryDelay(retry, 1, throttled(1_500))).toBe(1_500);
+    expect(retryDelay(retry, 1, throttled(60_000))).toBe(2_000);
+    expect(retryDelay(retry, 4, throttled(50))).toBe(800);
+  });
+
+  it('caps it at the default maxDelay with a backoff function, which it never shortens', () => {
+    expect(retryDelay(resolveRetry({ backoff: () => 10 }, 'M'), 1, throttled(5_000))).toBe(5_000);
+    expect(retryDelay(resolveRetry({ backoff: () => 10 }, 'M'), 1, throttled(600_000))).toBe(30_000);
+    expect(retryDelay(resolveRetry({ backoff: () => '1m' }, 'M'), 1, throttled(5_000))).toBe(60_000);
+  });
+
+  it("reads a custom transport's retryAfterMs, and ignores one that isn't a wait", () => {
+    expect(retryDelay(retry, 1, Object.assign(new Error('busy'), { retryAfterMs: 900 }))).toBe(900);
+    for (const retryAfterMs of [-1, Number.NaN, Number.POSITIVE_INFINITY, '900']) {
+      expect(retryDelay(retry, 1, Object.assign(new Error('busy'), { retryAfterMs }))).toBe(100);
+    }
+    expect(retryDelay(retry, 1, null)).toBe(100);
+    expect(retryDelay(retry, 1, 'thrown string')).toBe(100);
   });
 });
 
@@ -189,6 +244,8 @@ describe('errors', () => {
     const bare = new MailProviderError({ provider: 'postmark', status: 500 });
     expect(bare.message).toBe('postmark refused the message with 500');
     expect(bare).not.toHaveProperty('providerCode');
+    expect(bare).not.toHaveProperty('retryAfterMs');
+    expect(new MailProviderError({ provider: 'resend', status: 429, retryAfterMs: 7_000 }).retryAfterMs).toBe(7_000);
   });
 
   it('MailSmtpError: 4xx is transient, and the message names the command and the reply', () => {

@@ -66,7 +66,7 @@ export class ResendTransport extends HttpProviderTransport {
     return { accepted: message.envelope.to, providerMessageId: field(response.body, 'id') };
   }
 
-  protected toError({ status, body }: ProviderResponse): MailProviderError {
+  protected toError({ status, body, retryAfterMs }: ProviderResponse): MailProviderError {
     const name = field(body, 'name');
     // A concurrent request with the same key is still running: try again later. The same
     // key with a different body is a mistake that won't go away.
@@ -78,6 +78,7 @@ export class ResendTransport extends HttpProviderTransport {
       providerCode: name,
       detail: field(body, 'message') ?? (typeof body === 'string' ? body : undefined),
       ...(permanent !== undefined && { permanent }),
+      retryAfterMs,
     });
   }
 }
