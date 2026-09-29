@@ -42,7 +42,10 @@ export interface FakeSmtpOptions {
   dataReply?: (transaction: FakeTransaction) => string;
   /** Greeting line. Default `220 fake.smtp ESMTP`. */
   greeting?: string;
-  /** Sent right after the 220 to STARTTLS, in plaintext: a response-injection attempt. */
+  /**
+   * Sent in plaintext with the 220 to STARTTLS, in the same write: a response-injection
+   * attempt, which reaches the client together with the 220.
+   */
   injectAfterStartTls?: string;
 }
 
@@ -152,10 +155,9 @@ export class FakeSmtpServer {
         case 'HELO':
           return write('250 fake.smtp');
         case 'STARTTLS': {
-          write('220 2.0.0 Ready to start TLS');
-          if (this.options.injectAfterStartTls) {
-            socket.write(`${this.options.injectAfterStartTls}\r\n`);
-          }
+          const injected = this.options.injectAfterStartTls ? `${this.options.injectAfterStartTls}\r\n` : '';
+          // One write, so the injected line reaches the client with the 220 on every platform
+          socket.write(`220 2.0.0 Ready to start TLS\r\n${injected}`);
 
           raw.removeAllListeners('data');
           const secured = new TLSSocket(raw, {
