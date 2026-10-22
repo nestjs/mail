@@ -115,13 +115,15 @@ export class SmtpTransport extends MailTransport {
         this.release(connection);
         return { accepted: envelope.to, response: `${reply.code} ${reply.enhancedCode ? `${reply.enhancedCode} ` : ''}${reply.text}` };
       } catch (error) {
-        await this.recover(connection, error);
         // A pooled connection the server dropped while it sat idle fails on MAIL FROM,
-        // before anything was accepted: try once more on a new connection. Later failures
+        // before anything was accepted: try once more on a new connection, in the slot of
+        // the dead one, so sends waiting for a slot cannot also take it. Later failures
         // go to the caller, whose retry policy decides.
         if (reused && !fresh && !connection.transactionStarted && isStale(error) && !signal.aborted) {
+          connection.destroy();
           continue;
         }
+        await this.recover(connection, error);
         throw error;
       }
     }
@@ -147,6 +149,9 @@ export class SmtpTransport extends MailTransport {
 
   private async acquire(signal: AbortSignal, fresh: boolean): Promise<SmtpConnection> {
     if (this.closed) {
+      if (fresh) {
+        this.open--; // the slot the retry kept
+      }
       throw closedError();
     }
 
@@ -167,7 +172,9 @@ export class SmtpTransport extends MailTransport {
       }
     }
 
-    this.open++;
+    if (!fresh) {
+      this.open++; // a retry keeps the slot of the connection it replaces
+    }
     try {
       return await SmtpConnection.open({ ...this.#connect, signal });
     } catch (error) {

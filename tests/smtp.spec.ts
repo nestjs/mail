@@ -456,6 +456,118 @@ describe('SmtpTransport', () => {
       expect(server.transactions).toHaveLength(6);
     });
 
+    it.each([1, 2])('keeps to maxConnections %i when sends queue behind a stale pooled connection', async (maxConnections) => {
+      let open = 0;
+      let peak = 0;
+      let transactions = 0;
+      let peakTransactions = 0;
+      let stale = false;
+      await start({
+        reply: (c, session) => {
+          if (c.startsWith('EHLO') && !session.secure) {
+            open++;
+            peak = Math.max(peak, open);
+            session.socket.once('close', () => open--);
+          }
+          if (c.startsWith('MAIL') && stale) {
+            stale = false;
+            return '421 4.3.2 Shutting down';
+          }
+          if (c.startsWith('MAIL')) {
+            transactions++;
+            peakTransactions = Math.max(peakTransactions, transactions);
+          }
+          return undefined;
+        },
+        dataReply: () => {
+          transactions--;
+          return '250 2.0.0 Ok';
+        },
+      });
+
+      const t = transport({ pool: { maxConnections, idleTimeout: 50 } });
+      // Warm the pool, then make the idle connection fail its next MAIL FROM
+      await Promise.all(Array.from({ length: maxConnections }, async () => t.send(await message(), { signal: signal(), attempt: 1 })));
+      stale = true;
+      const mails = await Promise.all(Array.from({ length: 6 }, () => message()));
+      await Promise.all(mails.map((m) => t.send(m, { signal: signal(), attempt: 1 })));
+      // The slot count is still right once the idle connections are gone: a count too high
+      // would make the next sends wait forever, one too low would let them open one too many
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const later = await Promise.all(Array.from({ length: 6 }, () => message()));
+      await Promise.all(later.map((m) => t.send(m, { signal: signal(), attempt: 1 })));
+
+      expect(peak).toBeLessThanOrEqual(maxConnections);
+      expect(peakTransactions).toBeLessThanOrEqual(maxConnections);
+      expect(server.transactions).toHaveLength(maxConnections + 12);
+    });
+
+    it('frees the slot when the replacement for a stale pooled connection fails to open, so a waiting send still goes through', async () => {
+      let open = 0;
+      let peak = 0;
+      let stale = false;
+      let refuse = false;
+      await start({
+        reply: (c, session) => {
+          if (c.startsWith('EHLO') && !session.secure) {
+            if (refuse) {
+              refuse = false;
+              session.socket.destroy();
+              return undefined;
+            }
+            open++;
+            peak = Math.max(peak, open);
+            session.socket.once('close', () => open--);
+          }
+          if (c.startsWith('MAIL') && stale) {
+            stale = false;
+            refuse = true; // the replacement connection is dropped during the handshake
+            return '421 4.3.2 Shutting down';
+          }
+          return undefined;
+        },
+      });
+
+      const t = transport({ pool: { maxConnections: 1, idleTimeout: 50 } });
+      await t.send(await message(), { signal: signal(), attempt: 1 });
+      stale = true;
+      const [first, second] = await Promise.allSettled([
+        message().then((m) => t.send(m, { signal: signal(), attempt: 1 })),
+        message().then((m) => t.send(m, { signal: signal(), attempt: 1 })),
+      ]);
+
+      // The slot count is still right once the idle connection is gone
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await t.send(await message(), { signal: signal(), attempt: 1 });
+
+      expect(first.status).toBe('rejected');
+      expect(second.status).toBe('fulfilled');
+      expect(peak).toBeLessThanOrEqual(1);
+      expect(server.transactions).toHaveLength(3);
+    });
+
+    it('frees the slot of a stale pooled connection when the transport closes before the retry', async () => {
+      let t!: SmtpTransport;
+      let stale = false;
+      await start({
+        reply: (c) => {
+          if (c.startsWith('MAIL') && stale) {
+            stale = false;
+            void t.close(); // the application shuts down while the send is in flight
+            return '421 4.3.2 Shutting down';
+          }
+          return undefined;
+        },
+      });
+
+      t = transport({ pool: { maxConnections: 1 } });
+      await t.send(await message(), { signal: signal(), attempt: 1 });
+      stale = true;
+      await expect(t.send(await message(), { signal: signal(), attempt: 1 })).rejects.toThrow(/SmtpTransport is closed/);
+
+      expect((t as unknown as { open: number }).open).toBe(0);
+    });
+
     it('replaces a pooled connection the server dropped while idle, without sending twice', async () => {
       await start();
       const t = transport({ pool: { maxConnections: 1 } });
