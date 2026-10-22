@@ -149,6 +149,9 @@ export class SmtpTransport extends MailTransport {
 
   private async acquire(signal: AbortSignal, fresh: boolean): Promise<SmtpConnection> {
     if (this.closed) {
+      if (fresh) {
+        this.open--; // the slot the retry kept
+      }
       throw closedError();
     }
 

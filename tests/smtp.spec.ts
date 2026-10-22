@@ -546,6 +546,28 @@ describe('SmtpTransport', () => {
       expect(server.transactions).toHaveLength(3);
     });
 
+    it('frees the slot of a stale pooled connection when the transport closes before the retry', async () => {
+      let t!: SmtpTransport;
+      let stale = false;
+      await start({
+        reply: (c) => {
+          if (c.startsWith('MAIL') && stale) {
+            stale = false;
+            void t.close(); // the application shuts down while the send is in flight
+            return '421 4.3.2 Shutting down';
+          }
+          return undefined;
+        },
+      });
+
+      t = transport({ pool: { maxConnections: 1 } });
+      await t.send(await message(), { signal: signal(), attempt: 1 });
+      stale = true;
+      await expect(t.send(await message(), { signal: signal(), attempt: 1 })).rejects.toThrow(/SmtpTransport is closed/);
+
+      expect((t as unknown as { open: number }).open).toBe(0);
+    });
+
     it('replaces a pooled connection the server dropped while idle, without sending twice', async () => {
       await start();
       const t = transport({ pool: { maxConnections: 1 } });
