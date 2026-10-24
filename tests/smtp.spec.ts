@@ -12,7 +12,7 @@ import {
 } from '../lib/index.js';
 import { createMailMessage, type NormalizeInput } from '../lib/message/normalize.util.js';
 import { parseHeaderFields, relaxedBody, relaxedHeader } from '../lib/smtp/dkim.util.js';
-import { isLoopback, toSmtpData } from '../lib/smtp/smtp-connection.js';
+import { isLoopback, SmtpConnection, toSmtpData } from '../lib/smtp/smtp-connection.js';
 import { type FakeSmtpOptions, FakeSmtpServer } from './support/fake-smtp-server.js';
 import { parseMessage } from './support/mime-parser.js';
 
@@ -629,6 +629,25 @@ describe('SmtpTransport', () => {
         }
         expect(text).toMatch(/SmtpTransport `url`/);
         expect(text).not.toContain(secret);
+      }
+    });
+
+    it('turns on implicit TLS for port 465 with an smtp:// URL too, as without one', async () => {
+      const open = vi.spyOn(SmtpConnection, 'open').mockRejectedValue(new Error('not connecting'));
+      const resolved = async (options: SmtpTransportOptions) => {
+        open.mockClear();
+        await new SmtpTransport(options).verify().catch(() => undefined);
+        const { secure, port } = open.mock.calls[0][0];
+        return { secure, port };
+      };
+      try {
+        expect(await resolved({ url: 'smtp://smtp.example.com:465' })).toEqual({ secure: true, port: 465 });
+        expect(await resolved({ url: 'smtp://smtp.example.com', port: 465 })).toEqual({ secure: true, port: 465 });
+        expect(await resolved({ url: 'smtp://smtp.example.com:465', secure: false })).toEqual({ secure: false, port: 465 });
+        expect(await resolved({ url: 'smtp://smtp.example.com' })).toEqual({ secure: false, port: 587 });
+        expect(await resolved({ url: 'smtps://smtp.example.com' })).toEqual({ secure: true, port: 465 });
+      } finally {
+        open.mockRestore();
       }
     });
 

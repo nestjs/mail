@@ -336,7 +336,8 @@ function parseUrl(url: string): { host?: string; port?: number; secure?: boolean
   return {
     host: parsed.hostname.replace(/^\[(.*)\]$/, '$1'),
     ...(parsed.port && { port: Number(parsed.port) }),
-    secure: parsed.protocol === 'smtps:',
+    // `smtps://` asks for implicit TLS; `smtp://` leaves it to the port, as an unset `secure` does.
+    secure: parsed.protocol === 'smtps:' || undefined,
     ...(parsed.username && { auth: { user: decode(parsed.username), pass: decode(parsed.password) } }),
   };
 }
