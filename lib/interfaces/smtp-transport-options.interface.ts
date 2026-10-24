@@ -6,7 +6,8 @@ import type { Duration } from './duration.interface.js';
 export interface SmtpTransportOptions {
   /**
    * `smtp://user:pass@host:587` or `smtps://user:pass@host:465` (user and password
-   * percent-encoded). Fields set next to it win.
+   * percent-encoded). `smtps://` turns on `secure`; with `smtp://`, port 465 still does,
+   * as without a URL. Fields set next to it win.
    */
   url?: string;
   host?: string;
