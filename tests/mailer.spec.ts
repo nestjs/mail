@@ -286,6 +286,16 @@ describe('MailModule and Mailer', () => {
       expect(parseMessage(mail.raw).type).toBe('multipart/mixed');
     });
 
+    it('lets a send() header override one render() returned in another letter case', async () => {
+      await moduleRef!.get(Mailer).send(OrderConfirmationMail, {
+        to: 'zoe@example.com',
+        data: order,
+        headers: { 'x-order-id': 'override' },
+      });
+
+      expect(mailbox.assertSent().headers).toEqual({ 'x-order-id': 'override' });
+    });
+
     it('render() previews a mail without recipients; send() needs one', async () => {
       const mailer = moduleRef!.get(Mailer);
       const preview = await mailer.render(OrderConfirmationMail, { data: order });

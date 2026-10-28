@@ -13,7 +13,7 @@ import type {
   MailContent,
   MailRecipients,
 } from '../interfaces/mail-message.interface.js';
-import { checkHeaderName, checkHeaderValue } from './headers.util.js';
+import { checkHeaderName, checkHeaderValue, mergeHeaders } from './headers.util.js';
 import { isSafeHtml } from './html.util.js';
 import { type MailMessage, newMailMessage } from './mail-message.js';
 import { htmlToText } from './text.util.js';
@@ -112,7 +112,7 @@ export async function createMailMessage(
     throw new MailMessageError('html', 'or `text` is required: a mail needs a body');
   }
 
-  const headers = checkHeaders({ ...defaults.headers, ...input.headers });
+  const headers = checkHeaders(mergeHeaders(defaults.headers, input.headers));
   const attachments = await Promise.all(
     (input.attachments ?? []).map((attachment, i) => readAttachment(attachment, `attachments[${i}]`)),
   );

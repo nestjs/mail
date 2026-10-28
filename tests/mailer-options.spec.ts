@@ -221,6 +221,15 @@ describe('Mailer', () => {
       expect(second.message.replyTo).toEqual([{ address: 'billing@example.com' }]);
     });
 
+    it('lets a message header override a default spelled in another letter case', async () => {
+      const mailbox = new InMemoryMailTransport();
+      const { mailer } = await setup(mailbox, { headers: { 'X-App': 'shop', 'X-Env': 'test' } });
+
+      await mailer.send({ ...mail, headers: { 'x-env': 'override' } });
+
+      expect(mailbox.assertSent().headers).toEqual({ 'X-App': 'shop', 'x-env': 'override' });
+    });
+
     it('fails on a send without a from when the module has none', async () => {
       const { mailer } = await setup(new InMemoryMailTransport(), { from: undefined });
       await expect(mailer.send(mail)).rejects.toThrow(/Invalid mail: from is missing/);
