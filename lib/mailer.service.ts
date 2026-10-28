@@ -15,7 +15,7 @@ import type {
 import type { MailModuleOptions } from './interfaces/mail-module-options.interface.js';
 import { MAIL_MODULE_OPTIONS } from './mail.module-definition.js';
 import { parseAddress, parseAddressList } from './message/address.util.js';
-import { checkHeaderName, checkHeaderValue } from './message/headers.util.js';
+import { checkHeaderName, checkHeaderValue, mergeHeaders } from './message/headers.util.js';
 import type { MailMessage } from './message/mail-message.js';
 import { assertRecipients, createMailMessage, type NormalizeInput } from './message/normalize.util.js';
 import type { MailContent, MailRecipients, MailTemplateContent } from './interfaces/mail-message.interface.js';
@@ -135,7 +135,7 @@ export class Mailer {
         from: options.from ?? content.from,
         replyTo: options.replyTo ?? content.replyTo,
         attachments: [...(content.attachments ?? []), ...(options.attachments ?? [])],
-        headers: { ...content.headers, ...options.headers },
+        headers: mergeHeaders(content.headers, options.headers),
         mail: type,
         locale: options.locale,
         idempotencyKey: options.idempotencyKey,

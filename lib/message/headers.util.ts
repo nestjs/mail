@@ -27,6 +27,16 @@ export function checkHeaderValue(value: string, field: string): string {
   return value;
 }
 
+/** `over` on top of `base`. Header names are case-insensitive, so `x-tag` in `over` replaces `X-Tag` in `base`. */
+export function mergeHeaders(
+  base: Record<string, string> | undefined,
+  over: Record<string, string> | undefined,
+): Record<string, string> {
+  const replaced = new Set(Object.keys(over ?? {}).map((name) => name.toLowerCase()));
+  const kept = Object.entries(base ?? {}).filter(([name]) => !replaced.has(name.toLowerCase()));
+  return { ...Object.fromEntries(kept), ...over };
+}
+
 export function checkHeaderName(name: string, field: string): string {
   if (!FIELD_NAME.test(name) || name.length > 76) {
     throw new MailMessageError(field, 'is not a valid header name (printable ASCII without ":" or spaces)');
