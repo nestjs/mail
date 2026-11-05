@@ -14,6 +14,8 @@ import {
 
 /** A language tag such as `pl`, `pt-BR` or `zh-Hant-TW`: it becomes part of a file name. */
 const LOCALE = /^[A-Za-z0-9]{1,8}(?:[-_][A-Za-z0-9]{1,8})*$/;
+/** RFC 5646 asks a length limit to allow 35 characters; a longer locale would make long file names and many lookups. */
+const MAX_LOCALE_LENGTH = 35;
 
 const EXTENSIONS: Record<TemplateKind, string> = { html: '.html', text: '.txt' };
 
@@ -72,7 +74,7 @@ export class FileTemplateEngine extends MailTemplateEngine {
         { template: String(name) },
       );
     }
-    if (locale !== undefined && (typeof locale !== 'string' || !LOCALE.test(locale))) {
+    if (locale !== undefined && (typeof locale !== 'string' || locale.length > MAX_LOCALE_LENGTH || !LOCALE.test(locale))) {
       throw new MailTemplateError(`Invalid locale "${String(locale)}" for the template "${name}"`, { template: name });
     }
 
