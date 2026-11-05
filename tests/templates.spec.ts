@@ -346,6 +346,16 @@ describe('FileTemplateEngine: files', () => {
     expect((await engine.render('ok', {}, { locale: 'zh_Hant_TW' })).html).toBe('ok');
   });
 
+  it('rejects a locale longer than 35 characters, since every prefix becomes a file name', async () => {
+    const { engine } = setup({ 'ok.html': 'ok' });
+    const longest = 'abcdefgh-abcdefgh-abcdefgh-abcdefgh';
+    expect(longest).toHaveLength(35);
+    expect((await engine.render('ok', {}, { locale: longest })).html).toBe('ok');
+    for (const locale of [`${longest}-a`, Array.from({ length: 513 }, () => 'a').join('-')]) {
+      await expect(engine.render('ok', {}, { locale }), locale).rejects.toThrow(`Invalid locale "${locale}" for the template "ok"`);
+    }
+  });
+
   it('checks its options', () => {
     expect(() => new FileTemplateEngine(undefined as never)).toThrow('FileTemplateEngine needs `dir`');
     expect(() => new FileTemplateEngine({ dir: '' })).toThrow('FileTemplateEngine needs `dir`');
