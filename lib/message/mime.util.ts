@@ -89,14 +89,19 @@ function attachmentLeaf(attachment: MailAttachment): Leaf {
   if (attachment.filename !== undefined) {
     // `name` on Content-Type as an encoded-word is not standard, but it is what Outlook
     // and older clients read; RFC 2231 `filename*` is the standard, for everyone else.
-    const name = encodePhrase(attachment.filename).join('');
-    const quoted = name.startsWith('"') ? name : `"${name}"`;
-    type.push(` name=${quoted}`);
+    // Its words stay separate tokens, so that a long name folds inside the quotes.
+    const words = encodePhrase(attachment.filename, ' name="'.length);
+    const quoted = words[0].startsWith('"') ? words : [`"${words[0]}`, ...words.slice(1)];
+    if (quoted !== words) {
+      quoted[quoted.length - 1] += '"';
+    }
+    type[0] += ';';
+    type.push(` name=${quoted[0]}`, ...quoted.slice(1));
     disposition.push(...mimeParameter('filename', attachment.filename).map((p) => ` ${p}`));
   }
 
   const headers = [
-    foldHeader('Content-Type', withSemicolons(type)),
+    foldHeader('Content-Type', type),
     'Content-Transfer-Encoding: base64',
     foldHeader('Content-Disposition', withSemicolons(disposition)),
   ];

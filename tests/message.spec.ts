@@ -278,6 +278,15 @@ describe('header encoding', () => {
     expect(decodeWords(parseContentType(header(part.headers, 'content-type')!)[1].name)).toBe(filename);
   });
 
+  it('folds a long non-ASCII attachment name instead of throwing', async () => {
+    const filename = `${'請求書'.repeat(70)}.pdf`;
+    const { raw, parsed } = await roundTrip({ attachments: [{ filename, content: 'x' }] });
+    const part = parsed.parts[1];
+    expect(parseContentType(header(part.headers, 'content-disposition')!)[1].filename).toBe(filename);
+    expect(decodeWords(parseContentType(header(part.headers, 'content-type')!)[1].name)).toBe(filename);
+    expect(Math.max(...raw.split('\r\n').map((line) => line.length))).toBeLessThanOrEqual(78);
+  });
+
   it('writes custom headers, encoding non-ASCII values', async () => {
     const { parsed } = await roundTrip({ headers: { 'X-Campaign': 'Jesień 2026', 'List-Unsubscribe': '<https://shop.example.com/u?t=1>' } });
     expect(decodeWords(header(parsed.headers, 'x-campaign')!)).toBe('Jesień 2026');
