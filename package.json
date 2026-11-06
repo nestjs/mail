@@ -1,7 +1,21 @@
 {
   "name": "@nestjs/mail",
   "version": "0.0.1",
-  "description": "Nest - modern, fast, powerful node.js web framework (@mail)",
+  "description": "Send transactional email from NestJS: typed mail classes, escaped HTML templates, and SMTP, Resend, Postmark, SendGrid and Amazon SES transports.",
+  "keywords": [
+    "nestjs",
+    "nest",
+    "email",
+    "mail",
+    "mailer",
+    "smtp",
+    "transactional-email",
+    "email-templates",
+    "resend",
+    "postmark",
+    "sendgrid",
+    "ses"
+  ],
   "author": "Kamil Mysliwiec",
   "license": "MIT",
   "url": "https://github.com/nestjs/mail#readme",
