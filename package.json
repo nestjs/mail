@@ -1,6 +1,6 @@
 {
   "name": "@nestjs/mail",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Send transactional email from NestJS: typed mail classes, escaped HTML templates, and SMTP, Resend, Postmark, SendGrid and Amazon SES transports.",
   "keywords": [
     "nestjs",
