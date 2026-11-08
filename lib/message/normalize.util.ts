@@ -165,7 +165,7 @@ function messageId(from: MailAddress, idempotencyKey: string | undefined): strin
   return `<${id}@${domain}>`;
 }
 
-function checkHeaders(headers: Record<string, string>): Record<string, string> {
+export function checkHeaders(headers: Record<string, string>): Record<string, string> {
   const seen = new Set<string>();
   const out: Record<string, string> = {};
 
