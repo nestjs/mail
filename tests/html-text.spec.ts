@@ -75,6 +75,12 @@ describe('htmlToText()', () => {
     expect(htmlToText('<div>one<br>two</div><hr><p>three</p><p></p><p></p><p>four</p>')).toBe('one\ntwo\n\n----\n\nthree\n\nfour');
   });
 
+  it('turns a br with attributes into a line break too', () => {
+    expect(htmlToText('<p>Hi Ada,<br class="x">your order<br style="line-height:0" />shipped</p>')).toBe(
+      'Hi Ada,\nyour order\nshipped',
+    );
+  });
+
   it('drops head, style, script and title whatever their case', () => {
     expect(htmlToText('<HEAD><TITLE>t</TITLE></HEAD><SCRIPT>x()</SCRIPT><Style>p{}</Style><P>Body</P>')).toBe('Body');
   });

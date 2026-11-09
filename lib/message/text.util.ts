@@ -61,7 +61,7 @@ export function htmlToText(source: string): string {
   });
 
   text = text
-    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<br\b[^>]*>/gi, '\n')
     .replace(/<hr\b[^>]*>/gi, '\n\n----\n\n')
     .replace(/<li\b[^>]*>/gi, '\n- ')
     .replace(/<\/tr\s*>/gi, '\n')
