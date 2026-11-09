@@ -203,12 +203,22 @@ describe('MailModule and Mailer', () => {
       [{ from: 'not an address' }, /MailModule: Invalid mail: from/],
       [{ replyTo: ['a@example.com', 'b@'] }, /MailModule: Invalid mail: replyTo\[1\]/],
       [{ headers: { 'X-Bad': 'a\r\nb' } }, /MailModule: Invalid mail: headers\.X-Bad/],
+      [{ headers: { 'Reply-To': 'help@example.com' } }, /MailModule: Invalid mail: headers\.Reply-To can't be set as a header/],
+      [{ headers: { 'X-Tag': 'a', 'x-tag': 'b' } }, /MailModule: Invalid mail: headers\.x-tag is set twice/],
       [{ retry: { attempts: 0 } }, /MailModule: retry\.attempts/],
       [{ retry: { backoff: { delay: 'soon' } } }, /MailModule: retry\.backoff\.delay/],
     ])('fails at startup on invalid defaults: %j', async (options, message) => {
       await expect(
         Test.createTestingModule({ imports: [MailModule.forRoot({ transport: new InMemoryMailTransport(), ...(options as object) })] }).compile(),
       ).rejects.toThrow(message);
+    });
+
+    it('fails at startup on a default header without a value, such as an unset config value', async () => {
+      // What `{ 'X-Tenant': config.get('MAIL_TENANT') }` gives when the value isn't set.
+      const headers = { 'X-Tenant': undefined as unknown as string };
+      await expect(
+        Test.createTestingModule({ imports: [MailModule.forRoot({ transport: new InMemoryMailTransport(), headers })] }).compile(),
+      ).rejects.toThrow(/MailModule: Invalid mail: headers\.X-Tenant must be a string/);
     });
 
     it('warns at startup when a transport that delivers nothing runs in production', async () => {
