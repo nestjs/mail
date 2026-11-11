@@ -112,6 +112,23 @@ describe('HTTP providers: errors', () => {
     });
   });
 
+  it('SendGrid: lists an address once across to, cc and bcc', async () => {
+    const { fetch, requests } = stubFetch(() => Response.json({}));
+    const dup = await createMailMessage(
+      { to: ['U@x.com', 'u@x.com'], cc: ['u@x.com', 'c@x.com'], bcc: ['u@x.com', 'B@x.com', 'c@x.com'], subject: 'Hi', text: 'Hello' },
+      { from: 'orders@example.com' },
+    );
+    await new SendGridTransport({ apiKey: 'k', fetch }).send(dup, send);
+    const [personalization] = requests[0].body.personalizations;
+    expect(personalization.to).toEqual([{ email: 'U@x.com' }]);
+    expect(personalization.cc).toEqual([{ email: 'c@x.com' }]);
+    expect(personalization.bcc).toEqual([{ email: 'B@x.com' }]);
+
+    const copy = await createMailMessage({ to: 'u@x.com', bcc: 'U@x.com', subject: 'Hi', text: 'Hello' }, { from: 'orders@example.com' });
+    await new SendGridTransport({ apiKey: 'k', fetch }).send(copy, send);
+    expect(requests[1].body.personalizations[0]).toEqual({ to: [{ email: 'u@x.com' }] });
+  });
+
   it('SES: reads the error type from the body when the header is missing', async () => {
     const { fetch } = stubFetch(() => Response.json({ __type: 'com.amazonaws.ses#ThrottlingException', Message: 'Rate exceeded' }, { status: 400 }));
     const error = await new SesTransport({ region: 'us-east-1', credentials, fetch }).send(message, send).catch((e) => e);

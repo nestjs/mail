@@ -30,6 +30,14 @@ export class SendGridTransport extends HttpProviderTransport {
     }
 
     const person = (a: MailAddress) => ({ email: a.address, ...(a.name && { name: a.name }) });
+    // SendGrid rejects an address repeated across to, cc and bcc; same rule as `MailMessage.envelope`
+    const seen = new Set<string>();
+    const unique = (list: readonly MailAddress[]) =>
+      list.filter(({ address }) => {
+        const key = address.toLowerCase();
+        return !seen.has(key) && !!seen.add(key);
+      });
+    const [to, cc, bcc] = [message.to, message.cc, message.bcc].map(unique);
     const content = [
       // text/plain first, then text/html: SendGrid refuses another order
       ...(message.text ? [{ type: 'text/plain', value: message.text }] : []),
@@ -39,9 +47,9 @@ export class SendGridTransport extends HttpProviderTransport {
     const body = {
       personalizations: [
         {
-          to: message.to.map(person),
-          ...(message.cc.length && { cc: message.cc.map(person) }),
-          ...(message.bcc.length && { bcc: message.bcc.map(person) }),
+          to: to.map(person),
+          ...(cc.length && { cc: cc.map(person) }),
+          ...(bcc.length && { bcc: bcc.map(person) }),
         },
       ],
       from: person(message.from),
