@@ -244,7 +244,7 @@ describe('SesTransport', () => {
     const [request] = requests;
     expect(request.url).toBe('https://email.eu-west-1.amazonaws.com/v2/email/outbound-emails');
     expect(request.body).toMatchObject({
-      FromEmailAddress: 'orders@example.com',
+      FromEmailAddress: 'Orders <orders@example.com>',
       Destination: { ToAddresses: ['zoe@example.com', 'ada@example.com'], CcAddresses: ['cc@example.com'], BccAddresses: ['audit@example.com'] },
       ConfigurationSetName: 'transactional',
     });
@@ -280,6 +280,19 @@ describe('SesTransport', () => {
     expect(request.headers.authorization).toBe(
       `AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/${scope}, SignedHeaders=content-type;host;x-amz-date;x-amz-security-token, Signature=${signature}`,
     );
+  });
+
+  it("sends the sender's display name, encoded when it isn't ASCII, or the bare address without one", async () => {
+    const { fetch, requests } = stubFetch(() => Response.json({ MessageId: 'm' }));
+    const transport = new SesTransport({ region: 'eu-west-1', credentials, fetch });
+    for (const from of ['Zoë Café <zoe@example.com>', 'zoe@example.com']) {
+      await transport.send(await createMailMessage({ to: 'a@example.com', subject: 's', text: 't' }, { from }), send);
+    }
+
+    expect(requests.map((request) => request.body.FromEmailAddress)).toEqual([
+      '=?UTF-8?B?Wm/DqyBDYWbDqQ==?= <zoe@example.com>',
+      'zoe@example.com',
+    ]);
   });
 
   it('resolves credentials from a function on every send', async () => {
