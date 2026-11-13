@@ -383,7 +383,7 @@ describe.each(adapters)('sending through the HTTP providers from an app ($name)'
       expect(req.headers.authorization).toBe(expectedSigV4(req, 'eu-central-1', CREDENTIALS.secretAccessKey).authorization);
 
       expect(req.json).toEqual({
-        FromEmailAddress: 'orders@example.com',
+        FromEmailAddress: 'Orders <orders@example.com>',
         Destination: { ToAddresses: ['zoe@example.com'], CcAddresses: ['ada@example.com'], BccAddresses: ['audit@example.com'] },
         Content: { Raw: { Data: expect.any(String) } },
         ConfigurationSetName: 'transactional',

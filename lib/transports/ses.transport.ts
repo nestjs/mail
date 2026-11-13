@@ -4,6 +4,7 @@ import type {
 } from '../interfaces/provider-transport-options.interface.js';
 import { MailProviderError } from '../errors/mail-provider.error.js';
 import type { MailTransportResult, MailTransportSendOptions } from '../interfaces/mail-transport.interface.js';
+import { addressTokens } from '../message/headers.util.js';
 import type { MailMessage } from '../message/mail-message.js';
 import { field, HttpProviderTransport, type ProviderResponse } from './http-provider.transport.js';
 import { checkBaseUrl } from './resend.transport.js';
@@ -52,7 +53,8 @@ export class SesTransport extends HttpProviderTransport {
   async send(message: MailMessage, { signal }: MailTransportSendOptions): Promise<MailTransportResult> {
     const addresses = (list: MailMessage['to']) => list.map((a) => a.address);
     const body = JSON.stringify({
-      FromEmailAddress: message.from.address,
+      // With its display name, which SES puts on the message (encoded-words when it isn't ASCII)
+      FromEmailAddress: addressTokens(message.from).join(''),
       // Explicit, so Bcc recipients (never in the MIME headers) receive it too
       Destination: {
         ...(message.to.length && { ToAddresses: addresses(message.to) }),
