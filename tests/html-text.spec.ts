@@ -65,6 +65,12 @@ describe('htmlToText()', () => {
     expect(htmlToText('<a href="https://a.example/x"><img src="cid:logo"></a>')).toBe('https://a.example/x');
   });
 
+  it('shows a link once when its label is its target with escaped characters', () => {
+    const url = 'https://a.example/verify?user=42&token=abc';
+    expect(htmlToText(html`<a href="${url}">${url}</a>`.value)).toBe(url);
+    expect(htmlToText('<a href="mailto:o&#39;neil@example.com">o&#39;neil@example.com</a>')).toBe("o'neil@example.com");
+  });
+
   it('reads single-quoted and unquoted href attributes, entities decoded', () => {
     expect(htmlToText("<a href='https://a.example/?a=1&amp;b=2'>A</a> <a href=https://b.example>B</a>")).toBe(
       'A (https://a.example/?a=1&b=2) B (https://b.example)',
