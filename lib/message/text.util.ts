@@ -57,7 +57,9 @@ export function htmlToText(source: string): string {
       return inner;
     }
     const target = href.replace(/^mailto:/i, '');
-    return !inner || inner === target || inner === href ? target : `${inner} (${target})`;
+    // `href` has its entities decoded, so compare it with the label decoded too
+    const shown = decodeEntities(inner);
+    return !inner || shown === target || shown === href ? target : `${inner} (${target})`;
   });
 
   text = text
