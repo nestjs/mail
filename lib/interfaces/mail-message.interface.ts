@@ -102,7 +102,8 @@ export interface MailContent {
   attachments?: MailAttachmentInput[];
   /**
    * A calendar invitation (an iCalendar event), shown by mail clients with its
-   * accept/decline buttons. Not supported by `ResendTransport` and `PostmarkTransport`.
+   * accept/decline buttons. `ResendTransport` and `PostmarkTransport` send it as a single
+   * `.ics` attachment typed `text/calendar`, since their APIs add no alternative part.
    */
   calendar?: MailCalendarInput;
   /** Custom headers, such as `List-Unsubscribe` or `X-Entity-Ref-ID`. */

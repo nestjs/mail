@@ -7,15 +7,14 @@ import {
   formatAddress,
   HttpProviderTransport,
   type ProviderResponse,
-  refuseCalendar,
 } from './http-provider.transport.js';
 import { checkBaseUrl } from './resend.transport.js';
 
 /**
  * Postmark's `POST /email`. Postmark has no idempotency keys and assigns its own
  * `Message-ID`, so a redelivered mail can be sent twice. Postmark allows 50 recipients
- * and 10 MB per message. A calendar invitation is refused: Postmark's API has no way to
- * add the `text/calendar` part.
+ * and 10 MB per message. A calendar invitation goes as one `.ics` attachment typed
+ * `text/calendar; method=…`, as Postmark's guide to calendar invites describes.
  */
 export class PostmarkTransport extends HttpProviderTransport {
   readonly #token: string;
@@ -33,8 +32,26 @@ export class PostmarkTransport extends HttpProviderTransport {
   }
 
   async send(message: MailMessage, { signal }: MailTransportSendOptions): Promise<MailTransportResult> {
-    refuseCalendar(message, 'Postmark');
     const list = (addresses: MailMessage['to']) => addresses.map(formatAddress).join(', ');
+    const { calendar } = message;
+    const attachments = [
+      ...message.attachments.map((a) => ({
+        Name: a.filename ?? a.cid,
+        Content: a.content.toString('base64'),
+        ContentType: a.contentType,
+        ...(a.cid && { ContentID: `cid:${a.cid}` }),
+      })),
+      ...(calendar
+        ? [
+            {
+              Name: calendar.filename,
+              Content: Buffer.from(calendar.content, 'utf8').toString('base64'),
+              ContentType: `text/calendar; charset=utf-8${calendar.method ? `; method=${calendar.method}` : ''}`,
+            },
+          ]
+        : []),
+    ];
+
     const body = {
       From: formatAddress(message.from),
       To: list(message.to),
@@ -47,14 +64,7 @@ export class PostmarkTransport extends HttpProviderTransport {
       ...(Object.keys(message.headers).length && {
         Headers: Object.entries(message.headers).map(([Name, Value]) => ({ Name, Value })),
       }),
-      ...(message.attachments.length && {
-        Attachments: message.attachments.map((a) => ({
-          Name: a.filename ?? a.cid,
-          Content: a.content.toString('base64'),
-          ContentType: a.contentType,
-          ...(a.cid && { ContentID: `cid:${a.cid}` }),
-        })),
-      }),
+      ...(attachments.length && { Attachments: attachments }),
       MessageStream: this.stream,
     };
 

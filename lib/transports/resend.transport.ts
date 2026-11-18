@@ -9,14 +9,14 @@ import {
   formatAddress,
   HttpProviderTransport,
   type ProviderResponse,
-  refuseCalendar,
 } from './http-provider.transport.js';
 
 /**
  * Resend's `POST /emails`. An `idempotencyKey` is sent as the `Idempotency-Key` header
  * (Resend keeps it for 24 hours), so a redelivered mail isn't sent twice. Inline images
- * go as attachments with `content_id`. A calendar invitation is refused: Resend's API
- * has no way to add the `text/calendar` part.
+ * go as attachments with `content_id`. A calendar invitation goes as one `.ics` attachment
+ * typed `text/calendar; method=…`, which is all Resend's API can add: Gmail shows it as an
+ * invitation with its accept/decline buttons.
  */
 export class ResendTransport extends HttpProviderTransport {
   readonly #apiKey: string;
@@ -35,7 +35,25 @@ export class ResendTransport extends HttpProviderTransport {
     if (!message.to.length) {
       throw new MailMessageError('to', 'is required by Resend (cc or bcc alone is not enough)');
     }
-    refuseCalendar(message, 'Resend');
+
+    const { calendar } = message;
+    const attachments = [
+      ...message.attachments.map((a) => ({
+        filename: a.filename ?? a.cid,
+        content: a.content.toString('base64'),
+        content_type: a.contentType,
+        ...(a.cid && { content_id: a.cid }),
+      })),
+      ...(calendar
+        ? [
+            {
+              filename: calendar.filename,
+              content: Buffer.from(calendar.content, 'utf8').toString('base64'),
+              content_type: `text/calendar; charset=utf-8${calendar.method ? `; method=${calendar.method}` : ''}`,
+            },
+          ]
+        : []),
+    ];
 
     const body = {
       from: formatAddress(message.from),
@@ -48,14 +66,7 @@ export class ResendTransport extends HttpProviderTransport {
       // An empty string stops Resend from deriving a text part of its own
       text: message.text ?? '',
       ...(Object.keys(message.headers).length && { headers: message.headers }),
-      ...(message.attachments.length && {
-        attachments: message.attachments.map((a) => ({
-          filename: a.filename ?? a.cid,
-          content: a.content.toString('base64'),
-          content_type: a.contentType,
-          ...(a.cid && { content_id: a.cid }),
-        })),
-      }),
+      ...(attachments.length && { attachments }),
     };
 
     const response = await this.request(

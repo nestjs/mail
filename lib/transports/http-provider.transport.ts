@@ -1,11 +1,9 @@
 import type { HttpProviderOptions } from '../interfaces/provider-transport-options.interface.js';
 import { MailConnectionError } from '../errors/mail-connection.error.js';
-import { MailMessageError } from '../errors/mail-message.error.js';
 import { MailProviderError } from '../errors/mail-provider.error.js';
 import { MailTimeoutError } from '../errors/mail-timeout.error.js';
 import { MailTransport } from './mail.transport.js';
 import type { MailAddress } from '../interfaces/mail-message.interface.js';
-import type { MailMessage } from '../message/mail-message.js';
 import { parseRetryAfter } from '../utils/retry-after.util.js';
 import { durationOption } from '../utils/retry.util.js';
 
@@ -128,21 +126,6 @@ function parseJson(text: string): unknown {
     return JSON.parse(text);
   } catch {
     return text;
-  }
-}
-
-/**
- * Refuses a calendar invitation on a provider whose API can't add a `text/calendar`
- * alternative: sent as a mere attachment, it would arrive without the accept/decline
- * card, and nothing would tell the sender.
- */
-export function refuseCalendar(message: MailMessage, provider: string): void {
-  if (message.calendar) {
-    throw new MailMessageError(
-      'calendar',
-      `is not supported by ${provider}: its API can't add the text/calendar part clients show as an invitation ` +
-        '(SmtpTransport, SesTransport and SendGridTransport can)',
-    );
   }
 }
 

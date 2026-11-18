@@ -272,27 +272,60 @@ describe('SendGridTransport', () => {
 });
 
 describe('a calendar invitation on a provider without alternative parts', () => {
-  it.each([
-    ['Resend', (fetch: typeof globalThis.fetch) => new ResendTransport({ apiKey: 're_test', fetch })],
-    ['Postmark', (fetch: typeof globalThis.fetch) => new PostmarkTransport({ serverToken: 'pm', fetch })],
-  ])('%s refuses it before any request, naming the transport', async (provider, create) => {
-    const { fetch, requests } = stubFetch(() => Response.json({ id: 'x', MessageID: 'x' }));
-    const transport = create(fetch);
-    const withEvent = await createMailMessage(
-      { to: 'ada@example.com', subject: 's', text: 't', calendar: { content: invitation() } },
+  const content = invitation();
+  const copy = Buffer.from(content).toString('base64');
+  const pdf = { filename: 'agenda.pdf', content: Buffer.from('%PDF') };
+
+  async function withEvent(calendar: { content: string; method?: never; filename?: string }) {
+    return createMailMessage(
+      { to: 'ada@example.com', subject: 's', html: '<p>Hi</p>', attachments: [pdf], calendar },
       { from: 'orders@example.com' },
     );
+  }
 
-    const error = await transport.send(withEvent, send).catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(MailMessageError);
-    expect(error).toMatchObject({
-      field: 'calendar',
-      permanent: true,
-      message:
-        `Invalid mail: calendar is not supported by ${provider}: its API can't add the text/calendar part clients show as an invitation ` +
-        '(SmtpTransport, SesTransport and SendGridTransport can)',
-    });
-    expect(requests).toEqual([]);
+  it('Resend sends it as one .ics attachment typed text/calendar with the method, after the other attachments', async () => {
+    const { fetch, requests } = stubFetch(() => Response.json({ id: 'r1' }));
+    await new ResendTransport({ apiKey: 're_test', fetch }).send(await withEvent({ content }), send);
+
+    expect(requests[0].body.attachments).toEqual([
+      { filename: 'agenda.pdf', content: Buffer.from('%PDF').toString('base64'), content_type: 'application/pdf' },
+      { filename: 'invite.ics', content: copy, content_type: 'text/calendar; charset=utf-8; method=REQUEST' },
+    ]);
+  });
+
+  it('Postmark sends it as one .ics attachment typed text/calendar with the method, after the other attachments', async () => {
+    const { fetch, requests } = stubFetch(() => Response.json({ MessageID: 'p1' }));
+    await new PostmarkTransport({ serverToken: 'pm', fetch }).send(await withEvent({ content, filename: 'spotkanie.ics' }), send);
+
+    expect(requests[0].body.Attachments).toEqual([
+      { Name: 'agenda.pdf', Content: Buffer.from('%PDF').toString('base64'), ContentType: 'application/pdf' },
+      { Name: 'spotkanie.ics', Content: copy, ContentType: 'text/calendar; charset=utf-8; method=REQUEST' },
+    ]);
+  });
+
+  it('both leave the method out when the event has none, and send the event alone as the only attachment', async () => {
+    const bare = await createMailMessage(
+      { to: 'ada@example.com', subject: 's', text: 't', calendar: { content: invitation({ method: null }) } },
+      { from: 'orders@example.com' },
+    );
+    const resend = stubFetch(() => Response.json({ id: 'r' }));
+    await new ResendTransport({ apiKey: 're_test', fetch: resend.fetch }).send(bare, send);
+    const postmark = stubFetch(() => Response.json({ MessageID: 'p' }));
+    await new PostmarkTransport({ serverToken: 'pm', fetch: postmark.fetch }).send(bare, send);
+
+    expect(resend.requests[0].body.attachments.map((a: { content_type: string }) => a.content_type)).toEqual(['text/calendar; charset=utf-8']);
+    expect(postmark.requests[0].body.Attachments.map((a: { ContentType: string }) => a.ContentType)).toEqual(['text/calendar; charset=utf-8']);
+  });
+
+  it('neither adds attachments to a message without a calendar that had none', async () => {
+    const plain = await createMailMessage({ to: 'ada@example.com', subject: 's', text: 't' }, { from: 'orders@example.com' });
+    const resend = stubFetch(() => Response.json({ id: 'r' }));
+    await new ResendTransport({ apiKey: 're_test', fetch: resend.fetch }).send(plain, send);
+    const postmark = stubFetch(() => Response.json({ MessageID: 'p' }));
+    await new PostmarkTransport({ serverToken: 'pm', fetch: postmark.fetch }).send(plain, send);
+
+    expect(resend.requests[0].body).not.toHaveProperty('attachments');
+    expect(postmark.requests[0].body).not.toHaveProperty('Attachments');
   });
 });
 
