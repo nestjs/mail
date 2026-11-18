@@ -2,13 +2,20 @@ import type { PostmarkTransportOptions } from '../interfaces/provider-transport-
 import { MailProviderError } from '../errors/mail-provider.error.js';
 import type { MailTransportResult, MailTransportSendOptions } from '../interfaces/mail-transport.interface.js';
 import type { MailMessage } from '../message/mail-message.js';
-import { field, formatAddress, HttpProviderTransport, type ProviderResponse } from './http-provider.transport.js';
+import {
+  field,
+  formatAddress,
+  HttpProviderTransport,
+  type ProviderResponse,
+  refuseCalendar,
+} from './http-provider.transport.js';
 import { checkBaseUrl } from './resend.transport.js';
 
 /**
  * Postmark's `POST /email`. Postmark has no idempotency keys and assigns its own
  * `Message-ID`, so a redelivered mail can be sent twice. Postmark allows 50 recipients
- * and 10 MB per message.
+ * and 10 MB per message. A calendar invitation is refused: Postmark's API has no way to
+ * add the `text/calendar` part.
  */
 export class PostmarkTransport extends HttpProviderTransport {
   readonly #token: string;
@@ -26,6 +33,7 @@ export class PostmarkTransport extends HttpProviderTransport {
   }
 
   async send(message: MailMessage, { signal }: MailTransportSendOptions): Promise<MailTransportResult> {
+    refuseCalendar(message, 'Postmark');
     const list = (addresses: MailMessage['to']) => addresses.map(formatAddress).join(', ');
     const body = {
       From: formatAddress(message.from),

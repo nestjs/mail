@@ -7,6 +7,7 @@ import {
   relaxedHeader,
 } from '../lib/smtp/dkim.util.js';
 import { createMailMessage } from '../lib/message/normalize.util.js';
+import { invitation } from './support/calendar.js';
 
 /** RFC 8463 Appendix A: keys, and a message signed with both algorithms (CRLF line endings). */
 const ED25519_SEED = 'nWGxne/9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A=';
@@ -194,6 +195,24 @@ describe('DKIM signing', () => {
     expect(signatures(signed).sigs[0].tags.h).toBe('from:to:subject:date:message-id:content-type:content-transfer-encoding:from'.replace('content-type', 'mime-version:content-type'));
     expect(verifyDkim(signed, publicKey)).toEqual({ bodyHash: true, signature: true });
     expect(verifyDkim(signed.replace('Content-Transfer-Encoding: 7bit', 'Content-Transfer-Encoding: 8bit'), publicKey).signature).toBe(false);
+  });
+
+  it('signs a calendar invitation so that a verifier accepts it, and catches a changed event', async () => {
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+    const sign = createDkimSigner({ domainName: 'example.com', keySelector: 's1', privateKey }, 'SmtpTransport');
+    const withEvent = await createMailMessage(
+      {
+        to: 'zoe@example.com',
+        subject: 'Zaproszenie',
+        html: '<p>Dziękujemy!</p>',
+        calendar: { content: invitation({ summary: 'Przegląd zamówienia' }) },
+      },
+      { from: 'Orders <orders@example.com>' },
+    );
+
+    const signed = sign(withEvent.toMime()).toString('utf8');
+    expect(verifyDkim(signed, publicKey)).toEqual({ bodyHash: true, signature: true });
+    expect(verifyDkim(signed.replace('SEQUENCE:0', 'SEQUENCE:1'), publicKey).bodyHash).toBe(false);
   });
 
   it('survives what relaxed canonicalization forgives: refolding and trailing whitespace', async () => {

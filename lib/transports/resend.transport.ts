@@ -4,12 +4,19 @@ import { MailMessageError } from '../errors/mail-message.error.js';
 import { MailProviderError } from '../errors/mail-provider.error.js';
 import type { MailTransportResult, MailTransportSendOptions } from '../interfaces/mail-transport.interface.js';
 import type { MailMessage } from '../message/mail-message.js';
-import { field, formatAddress, HttpProviderTransport, type ProviderResponse } from './http-provider.transport.js';
+import {
+  field,
+  formatAddress,
+  HttpProviderTransport,
+  type ProviderResponse,
+  refuseCalendar,
+} from './http-provider.transport.js';
 
 /**
  * Resend's `POST /emails`. An `idempotencyKey` is sent as the `Idempotency-Key` header
  * (Resend keeps it for 24 hours), so a redelivered mail isn't sent twice. Inline images
- * go as attachments with `content_id`.
+ * go as attachments with `content_id`. A calendar invitation is refused: Resend's API
+ * has no way to add the `text/calendar` part.
  */
 export class ResendTransport extends HttpProviderTransport {
   readonly #apiKey: string;
@@ -28,6 +35,7 @@ export class ResendTransport extends HttpProviderTransport {
     if (!message.to.length) {
       throw new MailMessageError('to', 'is required by Resend (cc or bcc alone is not enough)');
     }
+    refuseCalendar(message, 'Resend');
 
     const body = {
       from: formatAddress(message.from),

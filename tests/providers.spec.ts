@@ -12,6 +12,7 @@ import {
 } from '../lib/index.js';
 import type { MailMessage } from '../lib/message/mail-message.js';
 import { createMailMessage } from '../lib/message/normalize.util.js';
+import { invitation } from './support/calendar.js';
 import { parseMessage } from './support/mime-parser.js';
 
 interface Captured {
@@ -230,6 +231,69 @@ describe('SendGridTransport', () => {
     const bccOnly = await createMailMessage({ bcc: 'a@example.com', subject: 's', text: 't' }, { from: 'a@example.com' });
     await expect(new SendGridTransport({ apiKey: 'k', fetch }).send(bccOnly, send)).rejects.toThrow(MailMessageError);
   });
+
+  it('sends a calendar invitation as content after text and html, and its copy after the attachments', async () => {
+    const { fetch, requests } = stubFetch(() => new Response(null, { status: 202 }));
+    const content = invitation();
+    const withEvent = await createMailMessage(
+      {
+        to: 'ada@example.com',
+        subject: 'Order review',
+        html: '<p>See you there</p>',
+        attachments: [{ filename: 'agenda.pdf', content: Buffer.from('%PDF') }],
+        calendar: { content },
+      },
+      { from: 'orders@example.com' },
+    );
+    await new SendGridTransport({ apiKey: 'k', fetch }).send(withEvent, send);
+
+    expect(requests[0].body.content).toEqual([
+      { type: 'text/plain', value: 'See you there' },
+      { type: 'text/html', value: '<p>See you there</p>' },
+      { type: 'text/calendar; method=REQUEST', value: content },
+    ]);
+    expect(requests[0].body.attachments).toEqual([
+      { content: Buffer.from('%PDF').toString('base64'), filename: 'agenda.pdf', type: 'application/pdf', disposition: 'attachment' },
+      { content: Buffer.from(content).toString('base64'), filename: 'invite.ics', type: 'application/ics', disposition: 'attachment' },
+    ]);
+  });
+
+  it('sends an event without a method as plain text/calendar, behind a text part even when the text is empty', async () => {
+    const { fetch, requests } = stubFetch(() => new Response(null, { status: 202 }));
+    const withEvent = await createMailMessage(
+      { to: 'ada@example.com', subject: 's', text: '', calendar: { content: invitation({ method: null }), filename: 'event.ics' } },
+      { from: 'orders@example.com' },
+    );
+    await new SendGridTransport({ apiKey: 'k', fetch }).send(withEvent, send);
+
+    expect(requests[0].body.content.map((c: { type: string }) => c.type)).toEqual(['text/plain', 'text/calendar']);
+    expect(requests[0].body.attachments.map((a: { filename: string }) => a.filename)).toEqual(['event.ics']);
+  });
+});
+
+describe('a calendar invitation on a provider without alternative parts', () => {
+  it.each([
+    ['Resend', (fetch: typeof globalThis.fetch) => new ResendTransport({ apiKey: 're_test', fetch })],
+    ['Postmark', (fetch: typeof globalThis.fetch) => new PostmarkTransport({ serverToken: 'pm', fetch })],
+  ])('%s refuses it before any request, naming the transport', async (provider, create) => {
+    const { fetch, requests } = stubFetch(() => Response.json({ id: 'x', MessageID: 'x' }));
+    const transport = create(fetch);
+    const withEvent = await createMailMessage(
+      { to: 'ada@example.com', subject: 's', text: 't', calendar: { content: invitation() } },
+      { from: 'orders@example.com' },
+    );
+
+    const error = await transport.send(withEvent, send).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(MailMessageError);
+    expect(error).toMatchObject({
+      field: 'calendar',
+      permanent: true,
+      message:
+        `Invalid mail: calendar is not supported by ${provider}: its API can't add the text/calendar part clients show as an invitation ` +
+        '(SmtpTransport, SesTransport and SendGridTransport can)',
+    });
+    expect(requests).toEqual([]);
+  });
 });
 
 describe('SesTransport', () => {
@@ -280,6 +344,22 @@ describe('SesTransport', () => {
     expect(request.headers.authorization).toBe(
       `AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/${scope}, SignedHeaders=content-type;host;x-amz-date;x-amz-security-token, Signature=${signature}`,
     );
+  });
+
+  it('sends a calendar invitation in the raw MIME, as the other transports build it', async () => {
+    const { fetch, requests } = stubFetch(() => Response.json({ MessageId: 'm' }));
+    const withEvent = await createMailMessage(
+      { to: 'ada@example.com', subject: 's', html: '<p>See you there</p>', calendar: { content: invitation() } },
+      { from: 'orders@example.com' },
+    );
+    await new SesTransport({ region: 'eu-west-1', credentials, fetch }).send(withEvent, send);
+
+    const raw = Buffer.from(requests[0].body.Content.Raw.Data, 'base64');
+    expect(raw.equals(withEvent.toMime())).toBe(true);
+    const tree = parseMessage(raw.toString('utf8'));
+    expect(tree.parts.map((p) => p.type)).toEqual(['multipart/alternative', 'application/ics']);
+    expect(tree.parts[0].parts.map((p) => p.type)).toEqual(['text/plain', 'text/html', 'text/calendar']);
+    expect(tree.parts[0].parts[2].params.method).toBe('REQUEST');
   });
 
   it("sends the sender's display name, encoded when it isn't ASCII, or the bare address without one", async () => {

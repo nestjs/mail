@@ -14,6 +14,7 @@ import {
   mimeParameter,
 } from '../lib/message/headers.util.js';
 import { assertRecipients, createMailMessage, type MailDefaults, type NormalizeInput } from '../lib/message/normalize.util.js';
+import { invitation } from './support/calendar.js';
 import { decodeWords, header, leaves, lint, parseContentType, parseMessage } from './support/mime-parser.js';
 
 const FROM = 'Orders <orders@example.com>';
@@ -340,5 +341,152 @@ describe('MIME structure without the full tree', () => {
   it('writes a multipart boundary no part of the body contains', async () => {
     const tree = await parsed({ text: '--=_ not a boundary\n--', html: '<p>--=_</p>' });
     expect(tree.parts.map((p) => p.body.toString())).toEqual(['--=_ not a boundary\r\n--', '<p>--=_</p>']);
+  });
+});
+
+describe('calendar invitations', () => {
+  const METHODS = 'PUBLISH, REQUEST, REPLY, ADD, CANCEL, REFRESH, COUNTER, DECLINECOUNTER';
+
+  it('takes the method from the content, names the copy invite.ics, and freezes it', async () => {
+    const message = await build({ calendar: { content: invitation() } });
+
+    expect(message.calendar).toEqual({ content: invitation(), method: 'REQUEST', filename: 'invite.ics' });
+    expect(Object.isFrozen(message.calendar)).toBe(true);
+  });
+
+  it('accepts a method that agrees with the content in another letter case, and UTF-8 bytes', async () => {
+    const content = new TextEncoder().encode(invitation({ method: 'Request', summary: 'Przegląd zamówienia' }));
+    const message = await build({ calendar: { content, method: 'request' as never, filename: 'spotkanie.ics' } });
+
+    expect(message.calendar).toEqual({
+      content: invitation({ method: 'Request', summary: 'Przegląd zamówienia' }),
+      method: 'REQUEST',
+      filename: 'spotkanie.ics',
+    });
+  });
+
+  it('keeps the method when the content has no METHOD, and leaves it out when neither has one', async () => {
+    expect((await build({ calendar: { content: invitation({ method: null }), method: 'PUBLISH' } })).calendar?.method).toBe('PUBLISH');
+    expect((await build({ calendar: { content: invitation({ method: null }) } })).calendar).toEqual({
+      content: invitation({ method: null }),
+      filename: 'invite.ics',
+    });
+  });
+
+  it('writes CRLF line breaks, which RFC 5545 requires, whatever the content had', async () => {
+    const bom = String.fromCharCode(0xfeff);
+    const message = await build({ calendar: { content: `${bom}${invitation().replace(/\r\n/g, '\n')}` } });
+    expect(message.calendar?.content).toBe(invitation());
+  });
+
+  it("reads the calendar's own METHOD: unfolded, and not a component's", async () => {
+    const folded = invitation({ method: null }).replace('VERSION:2.0\r\n', 'VERSION:2.0\r\nmethod:CAN\r\n CEL\r\n');
+    expect((await build({ calendar: { content: folded } })).calendar?.method).toBe('CANCEL');
+
+    const nested = invitation({ method: null }).replace('BEGIN:VEVENT\r\n', 'BEGIN:VEVENT\r\nMETHOD:REQUEST\r\n');
+    expect((await build({ calendar: { content: nested, method: 'CANCEL' } })).calendar?.method).toBe('CANCEL');
+  });
+
+  it.each([
+    ['no object', { calendar: null }, 'calendar must be an object such as { content, method? }'],
+    ['content of another type', { calendar: { content: 42 } }, 'calendar.content must be a string or a Uint8Array (the iCalendar object)'],
+    [
+      'content without a VCALENDAR',
+      { calendar: { content: 'BEGIN:VEVENT\r\nEND:VEVENT\r\n' } },
+      'calendar.content is not an iCalendar object: it has no BEGIN:VCALENDAR',
+    ],
+    ['bytes that are not UTF-8', { calendar: { content: new Uint8Array([0x42, 0xff, 0xfe]) } }, 'calendar.content is not valid UTF-8'],
+    ['an unknown method', { calendar: { content: invitation(), method: 'INVITE' } }, `calendar.method must be one of ${METHODS}`],
+    ['a method of another type', { calendar: { content: invitation(), method: 42 } }, `calendar.method must be one of ${METHODS}`],
+    [
+      "a method that contradicts the content's",
+      { calendar: { content: invitation(), method: 'CANCEL' } },
+      'calendar.method is CANCEL, but the content says METHOD:REQUEST: they must agree, or clients drop the invitation',
+    ],
+    [
+      'content with an unknown METHOD',
+      { calendar: { content: invitation({ method: 'X-INVITE' }) } },
+      `calendar.content has METHOD:X-INVITE, which is not one of ${METHODS}`,
+    ],
+    [
+      'content with two METHODs',
+      { calendar: { content: invitation().replace('VERSION:2.0', 'METHOD:REQUEST\r\nVERSION:2.0') } },
+      'calendar.content has more than one METHOD property',
+    ],
+    ['a blank filename', { calendar: { content: invitation(), filename: '  ' } }, 'calendar.filename must be a non-empty string'],
+    [
+      'a filename with a line break',
+      { calendar: { content: invitation(), filename: 'a\r\nb.ics' } },
+      'calendar.filename contains a line break or another control character',
+    ],
+    [
+      'a filename over 255 characters',
+      { calendar: { content: invitation(), filename: `${'a'.repeat(252)}.ics` } },
+      'calendar.filename is longer than 255 characters',
+    ],
+  ])('refuses %s', async (_case, input, message) => {
+    await expect(build(input as never)).rejects.toThrow(`Invalid mail: ${message}`);
+    await expect(build(input as never)).rejects.toBeInstanceOf(MailMessageError);
+  });
+
+  it('puts the event last in the alternative, and attaches a copy after the attachments', async () => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2]);
+    const content = invitation({ summary: 'Przegląd zamówienia #42' });
+    const tree = await parsed({
+      html: '<p>See you there</p><img src="cid:logo">',
+      text: 'See you there',
+      attachments: [
+        { cid: 'logo', filename: 'logo.png', content: png },
+        { filename: 'agenda.pdf', content: '%PDF' },
+      ],
+      calendar: { content },
+    });
+
+    expect(tree.type).toBe('multipart/mixed');
+    expect(tree.parts.map((p) => p.type)).toEqual(['multipart/alternative', 'application/pdf', 'application/ics']);
+
+    const [alternative, , copy] = tree.parts;
+    expect(alternative.parts.map((p) => p.type)).toEqual(['text/plain', 'multipart/related', 'text/calendar']);
+    expect(alternative.parts[1].parts.map((p) => p.type)).toEqual(['text/html', 'image/png']);
+
+    const event = alternative.parts[2];
+    expect(event.params).toEqual({ charset: 'utf-8', method: 'REQUEST' });
+    expect(header(event.headers, 'content-transfer-encoding')).toBe('quoted-printable');
+    expect(header(event.headers, 'content-disposition')).toBeUndefined();
+    expect(event.body.toString('utf8')).toBe(content);
+
+    expect(copy.params).toEqual({ name: 'invite.ics' });
+    expect(header(copy.headers, 'content-transfer-encoding')).toBe('base64');
+    expect(parseContentType(header(copy.headers, 'content-disposition')!)).toEqual(['attachment', { filename: 'invite.ics' }]);
+    expect(copy.body.toString('utf8')).toBe(content);
+  });
+
+  it('builds a valid message from text and an event alone, the event in 7bit when it can be', async () => {
+    const tree = await parsed({ text: 'Hi', calendar: { content: invitation({ method: 'CANCEL', sequence: 1 }), filename: 'Spotkanie — anulowane.ics' } });
+
+    expect(tree.type).toBe('multipart/mixed');
+    expect(leaves(tree).map((p) => p.type)).toEqual(['text/plain', 'text/calendar', 'application/ics']);
+    const [, event, copy] = leaves(tree);
+    expect(header(event.headers, 'content-type')).toBe('text/calendar; charset=utf-8; method=CANCEL');
+    expect(header(event.headers, 'content-transfer-encoding')).toBe('7bit');
+    expect(event.body.toString()).toContain('SEQUENCE:1\r\n');
+    expect(decodeWords(copy.params.name)).toBe('Spotkanie — anulowane.ics');
+    expect(parseContentType(header(copy.headers, 'content-disposition')!)[1].filename).toBe('Spotkanie — anulowane.ics');
+  });
+
+  it('writes no method parameter when the event has no method', async () => {
+    const tree = await parsed({ calendar: { content: invitation({ method: null }) } });
+    expect(header(leaves(tree)[1].headers, 'content-type')).toBe('text/calendar; charset=utf-8');
+  });
+
+  it('keeps every line within 76 characters when the event has long, unfolded lines', async () => {
+    const content = invitation({ summary: `Long ${'ż'.repeat(300)} and ${'x'.repeat(1200)}` });
+    const raw = (await build({ calendar: { content } })).toMime().toString('utf8');
+    const body = raw.slice(raw.indexOf('\r\n\r\n') + 4);
+
+    expect(lint(raw)).toEqual([]);
+    expect(body.split('\r\n').filter((line) => line.length > 76 && !/^[A-Za-z-]+: |^ /.test(line))).toEqual([]);
+    expect(leaves(parseMessage(raw))[1].body.toString('utf8')).toBe(content);
+    expect(leaves(parseMessage(raw))[2].body.toString('utf8')).toBe(content);
   });
 });

@@ -1,5 +1,5 @@
 import type { Type } from '@nestjs/common';
-import type { MailAddress, MailAttachment } from '../interfaces/mail-message.interface.js';
+import type { MailAddress, MailAttachment, MailCalendar } from '../interfaces/mail-message.interface.js';
 import type { MailMessage } from '../message/mail-message.js';
 import { extractLinks } from '../message/text.util.js';
 
@@ -37,6 +37,10 @@ export class SentMail {
   }
   get attachments(): readonly MailAttachment[] {
     return this.message.attachments;
+  }
+  /** The calendar invitation, when the mail carries one. */
+  get calendar(): MailCalendar | undefined {
+    return this.message.calendar;
   }
   get headers(): Readonly<Record<string, string>> {
     return this.message.headers;

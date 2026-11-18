@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import type { MailAttachment } from '../interfaces/mail-message.interface.js';
+import type { MailAttachment, MailCalendar } from '../interfaces/mail-message.interface.js';
 import type { MailMessage } from './mail-message.js';
 import { base64Lines, encodeTextBody } from './encoding.util.js';
 import { addressHeader, encodePhrase, encodeText, foldHeader, formatDate, mimeParameter } from './headers.util.js';
@@ -24,14 +24,18 @@ type Node = Leaf | Multipart;
  * multipart/mixed
  * ├─ multipart/alternative
  * │  ├─ text/plain
- * │  └─ multipart/related
- * │     ├─ text/html
- * │     └─ inline images (Content-ID)
- * └─ attachments
+ * │  ├─ multipart/related
+ * │  │  ├─ text/html
+ * │  │  └─ inline images (Content-ID)
+ * │  └─ text/calendar; method=REQUEST (a calendar invitation)
+ * ├─ attachments
+ * └─ application/ics (the invitation again, as a file)
  * ```
  *
  * Inline parts sit next to the HTML they belong to, not above the alternative, so a
- * client showing the text version doesn't list them as attachments. `Bcc` is never
+ * client showing the text version doesn't list them as attachments. A calendar
+ * invitation is laid out as nodemailer's `icalEvent` is, which clients have long been
+ * tested against: the last alternative, and an attached copy. `Bcc` is never
  * written. Every line ends with CRLF and fits in 998 characters.
  */
 export function buildMime(message: MailMessage): Buffer {
@@ -68,19 +72,45 @@ function structure(message: MailMessage): Node {
     html = { subtype: 'related', parts: [html, ...inline.map(attachmentLeaf)] };
   }
 
-  let body: Node = text && html ? { subtype: 'alternative', parts: [text, html] } : (html ?? text ?? textLeaf('plain', ''));
-  if (attached.length) {
-    body = { subtype: 'mixed', parts: [body, ...attached.map(attachmentLeaf)] };
+  const { calendar } = message;
+  const alternatives = [text, html, calendar && calendarLeaf(calendar)].filter((part) => part !== undefined);
+  let body: Node =
+    alternatives.length > 1 ? { subtype: 'alternative', parts: alternatives } : (alternatives[0] ?? textLeaf('plain', ''));
+
+  const files = attached.map(attachmentLeaf);
+  if (calendar) {
+    files.push(calendarAttachmentLeaf(calendar));
+  }
+  if (files.length) {
+    body = { subtype: 'mixed', parts: [body, ...files] };
   }
   return body;
 }
 
-function textLeaf(subtype: 'plain' | 'html', content: string): Leaf {
+function textLeaf(subtype: 'plain' | 'html' | 'calendar', content: string, parameters = ''): Leaf {
   const { encoding, body } = encodeTextBody(content);
   return {
-    headers: [`Content-Type: text/${subtype}; charset=utf-8`, `Content-Transfer-Encoding: ${encoding}`],
+    headers: [`Content-Type: text/${subtype}; charset=utf-8${parameters}`, `Content-Transfer-Encoding: ${encoding}`],
     body,
   };
+}
+
+/**
+ * The invitation itself, an alternative to the text and the HTML: where Gmail, Outlook and
+ * Apple Mail look for one. `method` repeats the content's `METHOD`, as RFC 6047 requires.
+ */
+function calendarLeaf(calendar: MailCalendar): Leaf {
+  return textLeaf('calendar', calendar.content, calendar.method ? `; method=${calendar.method}` : '');
+}
+
+/** The same event as an `.ics` file, for clients that only read attachments. */
+function calendarAttachmentLeaf(calendar: MailCalendar): Leaf {
+  return attachmentLeaf({
+    filename: calendar.filename,
+    content: Buffer.from(calendar.content, 'utf8'),
+    contentType: 'application/ics',
+    disposition: 'attachment',
+  });
 }
 
 function attachmentLeaf(attachment: MailAttachment): Leaf {

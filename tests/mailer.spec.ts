@@ -29,7 +29,8 @@ import {
   type MailTransportSendOptions,
   SmtpTransport,
 } from '../lib/index.js';
-import { parseMessage } from './support/mime-parser.js';
+import { invitation } from './support/calendar.js';
+import { leaves, parseMessage } from './support/mime-parser.js';
 
 const FROM = 'Orders <orders@example.com>';
 const CONFIG = Symbol('CONFIG');
@@ -78,6 +79,17 @@ class OrdersModule {}
 class WelcomeMail implements Mailable {
   render() {
     return { subject: 'Welcome', text: 'Welcome to the store' };
+  }
+}
+
+/** Returns a calendar invitation the app built itself, as `ical-generator` or a template would. */
+class MeetingInvitationMail implements Mailable<{ title: string; ics: string }> {
+  render({ title, ics }: { title: string; ics: string }) {
+    return {
+      subject: `Invitation: ${title}`,
+      html: html`<p>${title}</p>`,
+      calendar: { content: ics, method: 'REQUEST' as const },
+    };
   }
 }
 
@@ -314,6 +326,28 @@ describe('MailModule and Mailer', () => {
       expect(preview.to).toEqual([]);
       await expect(mailer.send(OrderConfirmationMail, { data: order })).rejects.toThrow(MailMessageError);
       expect(mailbox.mails).toEqual([]);
+    });
+
+    it('renders and sends the calendar invitation a mail class returns', async () => {
+      const mailer = moduleRef!.get(Mailer);
+      const data = { title: 'Order review', ics: invitation() };
+
+      const preview = await mailer.render(MeetingInvitationMail, { data });
+      expect(preview.calendar).toEqual({ content: invitation(), method: 'REQUEST', filename: 'invite.ics' });
+
+      await mailer.send(MeetingInvitationMail, { to: 'zoe@example.com', data });
+      const mail = mailbox.assertSent({ mail: MeetingInvitationMail });
+      expect(mail.calendar?.method).toBe('REQUEST');
+      expect(leaves(parseMessage(mail.raw)).map((p) => p.type)).toEqual(['text/plain', 'text/html', 'text/calendar', 'application/ics']);
+
+      await expect(mailer.send(MeetingInvitationMail, { to: 'zoe@example.com', data: { ...data, ics: invitation({ method: 'CANCEL' }) } })).rejects.toThrow(
+        'Invalid mail: calendar.method is REQUEST, but the content says METHOD:CANCEL',
+      );
+    });
+
+    it('sends a calendar invitation written inline', async () => {
+      await moduleRef!.get(Mailer).send({ to: 'zoe@example.com', subject: 'Cancelled', text: 'Cancelled', calendar: { content: invitation({ method: 'CANCEL', sequence: 1 }) } });
+      expect(mailbox.assertSent({ subject: 'Cancelled' }).calendar?.method).toBe('CANCEL');
     });
 
     it('rejects a class that is not a mail class, and bad render() results', async () => {
@@ -579,6 +613,11 @@ describe('MailModule and Mailer', () => {
         const parsed = parseMessage(readFileSync(join(dir, 'mail', file), 'utf8'));
         expect(parsed.headers.find(([n]) => n === 'Message-ID')?.[1]).toBe(result.messageId);
         expect(log).toHaveBeenCalledWith(expect.stringContaining(`"Zamówienie" to a@example.com written to ${join(dir, 'mail', file)}`));
+
+        await moduleRef!.get(Mailer).send({ to: 'a@example.com', subject: 'Invitation', text: 'Hi', calendar: { content: invitation() } });
+        const second = readdirSync(join(dir, 'mail')).find((name) => name !== file)!;
+        const event = leaves(parseMessage(readFileSync(join(dir, 'mail', second), 'utf8')))[1];
+        expect([event.type, event.params.method, event.body.toString()]).toEqual(['text/calendar', 'REQUEST', invitation()]);
       } finally {
         log.mockRestore();
         rmSync(dir, { recursive: true, force: true });

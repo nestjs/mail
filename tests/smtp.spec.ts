@@ -14,6 +14,7 @@ import { createMailMessage, type NormalizeInput } from '../lib/message/normalize
 import { parseHeaderFields, relaxedBody, relaxedHeader } from '../lib/smtp/dkim.util.js';
 import { isLoopback, SmtpConnection, toSmtpData } from '../lib/smtp/smtp-connection.js';
 import { type FakeSmtpOptions, FakeSmtpServer } from './support/fake-smtp-server.js';
+import { invitation } from './support/calendar.js';
 import { parseMessage } from './support/mime-parser.js';
 
 const USERS = { 'mailer@example.com': 's3cret-pass', 'oauth@example.com': 'ya29.token' };
@@ -270,6 +271,17 @@ describe('SmtpTransport', () => {
       expect(server.transactions).toHaveLength(1);
       const parsed = parseMessage(`${server.transactions[0].data}\r\n`);
       expect(parsed.body.toString()).toBe(`${text.replace(/\r\n|\n/g, '\r\n')}\r\n`);
+    });
+
+    it('delivers a calendar invitation as the message built it', async () => {
+      await start();
+      const mail = await message({ html: '<p>See you there</p>', calendar: { content: invitation() } });
+      await transport().send(mail, { signal: signal(), attempt: 1 });
+
+      const received = `${server.transactions[0].data}\r\n`;
+      expect(received).toBe(mail.toMime().toString('utf8'));
+      const event = parseMessage(received).parts[0].parts.at(-1)!;
+      expect([event.type, event.params.method, event.body.toString()]).toEqual(['text/calendar', 'REQUEST', invitation()]);
     });
 
     it('signs with DKIM so the received message verifies', async () => {
