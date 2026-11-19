@@ -1,6 +1,7 @@
 import { InMemoryMailTransport, MailConnectionError, SentMail } from '../lib/index.js';
 import { createMailMessage, type NormalizeInput } from '../lib/message/normalize.util.js';
-import { parseMessage } from './support/mime-parser.js';
+import { invitation } from './support/calendar.js';
+import { leaves, parseMessage } from './support/mime-parser.js';
 
 class WelcomeMail {
   render() {
@@ -145,6 +146,15 @@ describe('SentMail', () => {
     expect(mail.mail).toBe(WelcomeMail);
     expect(mail.html).toBeUndefined();
     expect(mail.text).toBe('Hi');
+  });
+
+  it('exposes a calendar invitation, and has it in the MIME source', async () => {
+    const mail = await sent({ calendar: { content: invitation() } });
+
+    expect(mail.calendar).toEqual({ content: invitation(), method: 'REQUEST', filename: 'invite.ics' });
+    expect(mail.calendar?.content).toContain('UID:meeting-42@example.com');
+    expect(leaves(parseMessage(mail.raw)).map((p) => p.type)).toEqual(['text/plain', 'text/calendar', 'application/ics']);
+    expect((await sent({})).calendar).toBeUndefined();
   });
 
   it('gives the MIME source, which has no Bcc', async () => {

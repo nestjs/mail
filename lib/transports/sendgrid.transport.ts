@@ -10,6 +10,8 @@ import { checkBaseUrl } from './resend.transport.js';
 /**
  * SendGrid's `POST /v3/mail/send`, one personalization per message. SendGrid has no
  * idempotency keys, so a redelivered mail can be sent twice. It needs at least one `to`.
+ * A calendar invitation goes as a `text/calendar` content entry, after the text and the
+ * HTML, and as an attached `.ics`.
  */
 export class SendGridTransport extends HttpProviderTransport {
   readonly #apiKey: string;
@@ -38,10 +40,37 @@ export class SendGridTransport extends HttpProviderTransport {
         return !seen.has(key) && !!seen.add(key);
       });
     const [to, cc, bcc] = [message.to, message.cc, message.bcc].map(unique);
-    const content = [
-      // text/plain first, then text/html: SendGrid refuses another order
+    const { calendar } = message;
+    const bodies = [
+      // text/plain first, then text/html, then any other type: SendGrid refuses another order
       ...(message.text ? [{ type: 'text/plain', value: message.text }] : []),
       ...(message.html ? [{ type: 'text/html', value: message.html }] : []),
+    ];
+    const content = [
+      ...(bodies.length ? bodies : [{ type: 'text/plain', value: ' ' }]),
+      ...(calendar
+        ? [{ type: `text/calendar${calendar.method ? `; method=${calendar.method}` : ''}`, value: calendar.content }]
+        : []),
+    ];
+    const attachments = [
+      ...message.attachments.map((a) => ({
+        content: a.content.toString('base64'),
+        filename: a.filename ?? a.cid,
+        type: a.contentType,
+        disposition: a.disposition,
+        ...(a.cid && { content_id: a.cid }),
+      })),
+      // The same event as a file, as in the MIME the other transports send
+      ...(calendar
+        ? [
+            {
+              content: Buffer.from(calendar.content, 'utf8').toString('base64'),
+              filename: calendar.filename,
+              type: 'application/ics',
+              disposition: 'attachment',
+            },
+          ]
+        : []),
     ];
 
     const body = {
@@ -55,17 +84,9 @@ export class SendGridTransport extends HttpProviderTransport {
       from: person(message.from),
       ...(message.replyTo.length && { reply_to_list: message.replyTo.map(person) }),
       subject: message.subject,
-      content: content.length ? content : [{ type: 'text/plain', value: ' ' }],
+      content,
       ...(Object.keys(message.headers).length && { headers: message.headers }),
-      ...(message.attachments.length && {
-        attachments: message.attachments.map((a) => ({
-          content: a.content.toString('base64'),
-          filename: a.filename ?? a.cid,
-          type: a.contentType,
-          disposition: a.disposition,
-          ...(a.cid && { content_id: a.cid }),
-        })),
-      }),
+      ...(attachments.length && { attachments }),
     };
 
     const response = await this.request(

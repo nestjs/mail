@@ -1,4 +1,4 @@
-import type { MailAddress, MailAttachment } from '../interfaces/mail-message.interface.js';
+import type { MailAddress, MailAttachment, MailCalendar } from '../interfaces/mail-message.interface.js';
 import type { Type } from '@nestjs/common';
 import { isInternationalized } from './address.util.js';
 import { buildMime } from './mime.util.js';
@@ -19,6 +19,7 @@ export interface MailMessageInit {
   html?: string;
   text?: string;
   attachments: MailAttachment[];
+  calendar?: MailCalendar;
   headers: Record<string, string>;
   mail?: Type;
   locale?: string;
@@ -44,6 +45,8 @@ export class MailMessage {
   readonly html?: string;
   readonly text?: string;
   readonly attachments: readonly MailAttachment[];
+  /** The calendar invitation, when the message carries one. */
+  readonly calendar?: MailCalendar;
   /** Custom headers, as given (without the ones the message sets itself). */
   readonly headers: Readonly<Record<string, string>>;
   /** The mail class that rendered the message, when it came from one. */
@@ -75,6 +78,9 @@ export class MailMessage {
       this.text = init.text;
     }
     this.attachments = Object.freeze(init.attachments.map((a) => Object.freeze({ ...a })));
+    if (init.calendar) {
+      this.calendar = Object.freeze({ ...init.calendar });
+    }
     this.headers = Object.freeze({ ...init.headers });
     if (init.mail) {
       this.mail = init.mail;

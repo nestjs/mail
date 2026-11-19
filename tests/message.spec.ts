@@ -8,6 +8,7 @@ import { parseAddress } from '../lib/message/address.util.js';
 import { quotedPrintable } from '../lib/message/encoding.util.js';
 import { createMailMessage, type NormalizeInput } from '../lib/message/normalize.util.js';
 import { extractLinks, htmlToText } from '../lib/message/text.util.js';
+import { invitation } from './support/calendar.js';
 import {
   decodeWords,
   header,
@@ -414,6 +415,45 @@ print(json.dumps(out))
       expect(parts[5][2]).toBe('<logo>');
       expect(Buffer.from(result.parts[5][3], 'base64').equals(png)).toBe(true);
       expect(parts[6][1]).toBe(`Faktura ${'ż'.repeat(30)}.pdf`);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(!python)('reads a calendar invitation: the event as an alternative, and its copy attached', async () => {
+    const content = invitation({ summary: 'Przegląd zamówienia #42' });
+    const message = await build({ html: '<p>See you there</p>', text: undefined, calendar: { content, filename: 'spotkanie.ics' } });
+
+    const dir = mkdtempSync(join(tmpdir(), 'mail-py-'));
+    try {
+      const file = join(dir, 'message.eml');
+      writeFileSync(file, message.toMime());
+
+      const script = `
+import email, json, sys
+from email import policy
+msg = email.message_from_binary_file(open(sys.argv[1], 'rb'), policy=policy.default)
+out = {'defects': [str(d) for d in msg.defects], 'parts': []}
+for part in msg.walk():
+  out['defects'] += [str(d) for d in part.defects]
+  body = None if part.is_multipart() else part.get_payload(decode=True).decode('utf-8')
+  out['parts'].append([part.get_content_type(), part.get_param('method'), part.get_content_disposition(), part.get_filename(), body])
+print(json.dumps(out))
+`;
+
+      const result = JSON.parse(execFileSync('python3', ['-c', script, file], { encoding: 'utf8' }));
+      expect(result.defects).toEqual([]);
+      expect(result.parts.map(([type, method, disposition, filename]: string[]) => [type, method, disposition, filename])).toEqual([
+        ['multipart/mixed', null, null, null],
+        ['multipart/alternative', null, null, null],
+        ['text/plain', null, null, null],
+        ['text/html', null, null, null],
+        ['text/calendar', 'REQUEST', null, null],
+        ['application/ics', null, 'attachment', 'spotkanie.ics'],
+      ]);
+      // Python hands a decoded text part back with \n line breaks; the base64 copy keeps CRLF
+      expect(result.parts[4][4]).toBe(content.replace(/\r\n/g, '\n'));
+      expect(result.parts[5][4]).toBe(content);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

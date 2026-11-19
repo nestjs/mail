@@ -40,6 +40,48 @@ export interface MailAttachmentInput {
   cid?: string;
 }
 
+/** An iTIP method (RFC 5546): what a calendar invitation asks of its recipient. */
+export type MailCalendarMethod =
+  | 'PUBLISH'
+  | 'REQUEST'
+  | 'REPLY'
+  | 'ADD'
+  | 'CANCEL'
+  | 'REFRESH'
+  | 'COUNTER'
+  | 'DECLINECOUNTER';
+
+/**
+ * A calendar invitation as the app passes it: an iCalendar object (RFC 5545) the app built
+ * itself, with `ical-generator`, `ics` or a template. It is sent as a `text/calendar` part
+ * next to the text and HTML bodies, which is where mail clients look for an invitation, and
+ * again as an attached `.ics` file for clients that only read attachments.
+ *
+ * To update or cancel an event a calendar already holds, send the same `UID` with a higher
+ * `SEQUENCE` (and `METHOD:CANCEL` to cancel it).
+ */
+export interface MailCalendarInput {
+  /** The iCalendar object, as text or UTF-8 bytes. It must contain a `BEGIN:VCALENDAR`. */
+  content: string | Uint8Array;
+  /**
+   * The iTIP method, e.g. `REQUEST` for an invitation. Defaults to the `METHOD` in
+   * `content`; when `content` has one, the two must agree, or clients drop the invitation.
+   */
+  method?: MailCalendarMethod;
+  /** The name of the attached copy. Defaults to `invite.ics`. */
+  filename?: string;
+}
+
+/** A calendar invitation, validated. */
+export interface MailCalendar {
+  /** The iCalendar object, with CRLF line breaks. */
+  readonly content: string;
+  /** The iTIP method, uppercase, from the option or from `content`'s `METHOD`. */
+  readonly method?: MailCalendarMethod;
+  /** The name of the attached copy. */
+  readonly filename: string;
+}
+
 /**
  * A message written as HTML (or text), whether passed to `send()` or returned from a mail
  * class. `MailTemplateContent` is the same message rendered from a template instead.
@@ -58,6 +100,12 @@ export interface MailContent {
   /** Only with `template`. */
   context?: never;
   attachments?: MailAttachmentInput[];
+  /**
+   * A calendar invitation (an iCalendar event), shown by mail clients with its
+   * accept/decline buttons. `ResendTransport` and `PostmarkTransport` send it as a single
+   * `.ics` attachment typed `text/calendar`, since their APIs add no alternative part.
+   */
+  calendar?: MailCalendarInput;
   /** Custom headers, such as `List-Unsubscribe` or `X-Entity-Ref-ID`. */
   headers?: Record<string, string>;
   /** Overrides the module's `from`. */

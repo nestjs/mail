@@ -17,6 +17,7 @@ import {
   type MailTemplateOutput,
   type MailTemplateRenderOptions,
 } from '../lib/index.js';
+import { invitation } from './support/calendar.js';
 
 /** The error `promise` rejects with; fails the test when it resolves. */
 function rejection(promise: Promise<unknown>): Promise<MailTemplateError> {
@@ -121,6 +122,20 @@ describe('Mailer: templates', () => {
       'Hi Ada <Lovelace>,\n- Salmon kibble: $24.99\n- Feather wand <limited>: $7.99\nhttps://shop.example.com/orders/1001?ref=mail&lang=en\n',
     );
     expect(mail.link('/orders/').searchParams.get('lang')).toBe('en');
+  });
+
+  it('keeps the calendar invitation a mail class returns beside its template', async () => {
+    @Injectable()
+    class WelcomeMeetingMail implements Mailable {
+      render() {
+        return { subject: 'Welcome call', template: 'welcome', context: { name: 'Ada' }, calendar: { content: invitation() } };
+      }
+    }
+
+    const message = await mailer.render(WelcomeMeetingMail, {});
+    expect(message.template).toBe('welcome');
+    expect(message.html).toBe('<main><p>Welcome, Ada</p></main>');
+    expect(message.calendar).toEqual({ content: invitation(), method: 'REQUEST', filename: 'invite.ics' });
   });
 
   it("renders the template in the mail's locale, and derives the text when there is no .txt for it", async () => {

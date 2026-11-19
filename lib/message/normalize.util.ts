@@ -10,9 +10,13 @@ import type {
   MailAddressInput,
   MailAttachment,
   MailAttachmentInput,
+  MailCalendar,
+  MailCalendarInput,
+  MailCalendarMethod,
   MailContent,
   MailRecipients,
 } from '../interfaces/mail-message.interface.js';
+import { normalizeNewlines } from './encoding.util.js';
 import { checkHeaderName, checkHeaderValue, mergeHeaders } from './headers.util.js';
 import { isSafeHtml } from './html.util.js';
 import { type MailMessage, newMailMessage } from './mail-message.js';
@@ -63,6 +67,18 @@ const CONTENT_TYPES: Record<string, string> = {
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
+
+/** The iTIP methods (RFC 5546 §1.4). */
+const CALENDAR_METHODS: readonly MailCalendarMethod[] = [
+  'PUBLISH',
+  'REQUEST',
+  'REPLY',
+  'ADD',
+  'CANCEL',
+  'REFRESH',
+  'COUNTER',
+  'DECLINECOUNTER',
+];
 
 const CONTENT_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/i;
 const CID = /^[A-Za-z0-9._\-@]{1,200}$/;
@@ -122,6 +138,8 @@ export async function createMailMessage(
     throw new MailMessageError('attachments', `use the cid "${duplicate}" twice`);
   }
 
+  const calendar = input.calendar === undefined ? undefined : readCalendar(input.calendar);
+
   if (input.idempotencyKey !== undefined && (typeof input.idempotencyKey !== 'string' || !input.idempotencyKey)) {
     throw new MailMessageError('idempotencyKey', 'must be a non-empty string');
   }
@@ -138,6 +156,7 @@ export async function createMailMessage(
     html,
     text,
     attachments,
+    ...(calendar && { calendar }),
     headers,
     mail: input.mail,
     locale: input.locale,
@@ -202,13 +221,7 @@ async function readAttachment(input: MailAttachmentInput, field: string): Promis
 
   const name = filename ?? (input.path !== undefined ? basename(input.path) : undefined);
   if (name !== undefined) {
-    if (typeof name !== 'string' || !name.trim()) {
-      throw new MailMessageError(`${field}.filename`, 'must be a non-empty string');
-    }
-    checkHeaderValue(name, `${field}.filename`);
-    if (name.length > 255) {
-      throw new MailMessageError(`${field}.filename`, 'is longer than 255 characters');
-    }
+    checkFilename(name, `${field}.filename`);
   }
 
   if (cid !== undefined && (typeof cid !== 'string' || !CID.test(cid))) {
@@ -232,6 +245,117 @@ async function readAttachment(input: MailAttachmentInput, field: string): Promis
     ...(cid !== undefined && { cid }),
     disposition: cid !== undefined ? 'inline' : 'attachment',
   };
+}
+
+function checkFilename(name: unknown, field: string): string {
+  if (typeof name !== 'string' || !name.trim()) {
+    throw new MailMessageError(field, 'must be a non-empty string');
+  }
+  checkHeaderValue(name, field);
+  if (name.length > 255) {
+    throw new MailMessageError(field, 'is longer than 255 characters');
+  }
+  return name;
+}
+
+/**
+ * Validates a calendar invitation. The method and the content's `METHOD` property must
+ * agree (RFC 6047 §2.4): a client that sees them differ drops the invitation without
+ * telling the sender.
+ */
+function readCalendar(input: MailCalendarInput): MailCalendar {
+  if (!input || typeof input !== 'object') {
+    throw new MailMessageError('calendar', 'must be an object such as { content, method? }');
+  }
+
+  const content = calendarText(input.content);
+  const declared = calendarMethod(content);
+  let method: MailCalendarMethod | undefined;
+
+  if (input.method !== undefined) {
+    const given = typeof input.method === 'string' ? input.method.trim().toUpperCase() : undefined;
+    if (!isCalendarMethod(given)) {
+      throw new MailMessageError('calendar.method', `must be one of ${CALENDAR_METHODS.join(', ')}`);
+    }
+    if (declared !== undefined && declared !== given) {
+      throw new MailMessageError(
+        'calendar.method',
+        `is ${given}, but the content says METHOD:${declared}: they must agree, or clients drop the invitation`,
+      );
+    }
+    method = given;
+  } else if (declared !== undefined) {
+    if (!isCalendarMethod(declared)) {
+      throw new MailMessageError(
+        'calendar.content',
+        `has METHOD:${declared}, which is not one of ${CALENDAR_METHODS.join(', ')}`,
+      );
+    }
+    method = declared;
+  }
+
+  const filename = input.filename === undefined ? 'invite.ics' : checkFilename(input.filename, 'calendar.filename');
+  return { content, ...(method && { method }), filename };
+}
+
+/** The iCalendar object as text with CRLF line breaks, which RFC 5545 requires. */
+function calendarText(content: unknown): string {
+  let text: string;
+  if (typeof content === 'string') {
+    // A byte order mark, as TextDecoder drops it from bytes
+    text = content.charCodeAt(0) === 0xfeff ? content.slice(1) : content;
+  } else if (content instanceof Uint8Array) {
+    try {
+      text = new TextDecoder('utf-8', { fatal: true }).decode(content);
+    } catch {
+      throw new MailMessageError('calendar.content', 'is not valid UTF-8');
+    }
+  } else {
+    throw new MailMessageError('calendar.content', 'must be a string or a Uint8Array (the iCalendar object)');
+  }
+  return normalizeNewlines(text);
+}
+
+/**
+ * The `METHOD` property of the `VCALENDAR` (uppercase), or `undefined` when it has none.
+ * Lines are unfolded first (RFC 5545 §3.1); properties of nested components are skipped.
+ */
+function calendarMethod(content: string): string | undefined {
+  const lines = content.replace(/\r\n[ \t]/g, '').split('\r\n');
+  const components: string[] = [];
+  let calendar = false;
+  let method: string | undefined;
+
+  for (const line of lines) {
+    const component = /^(BEGIN|END):(.*)$/i.exec(line.trimEnd());
+    if (component) {
+      const name = component[2].trim().toUpperCase();
+      if (component[1].toUpperCase() === 'BEGIN') {
+        calendar ||= name === 'VCALENDAR';
+        components.push(name);
+      } else {
+        components.pop();
+      }
+      continue;
+    }
+
+    const property = /^METHOD(?:;[^:]*)?:(.*)$/i.exec(line);
+    if (property && components.length === 1 && components[0] === 'VCALENDAR') {
+      if (method !== undefined) {
+        throw new MailMessageError('calendar.content', 'has more than one METHOD property');
+      }
+      method = property[1].trim().toUpperCase();
+    }
+  }
+
+  if (!calendar) {
+    throw new MailMessageError('calendar.content', 'is not an iCalendar object: it has no BEGIN:VCALENDAR');
+  }
+  return method;
+}
+
+function isCalendarMethod(method: string | undefined): method is MailCalendarMethod {
+  return CALENDAR_METHODS.includes(method as MailCalendarMethod);
 }
 
 async function readContent(input: MailAttachmentInput, field: string): Promise<Buffer> {
