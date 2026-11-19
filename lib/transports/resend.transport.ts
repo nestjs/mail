@@ -4,12 +4,7 @@ import { MailMessageError } from '../errors/mail-message.error.js';
 import { MailProviderError } from '../errors/mail-provider.error.js';
 import type { MailTransportResult, MailTransportSendOptions } from '../interfaces/mail-transport.interface.js';
 import type { MailMessage } from '../message/mail-message.js';
-import {
-  field,
-  formatAddress,
-  HttpProviderTransport,
-  type ProviderResponse,
-} from './http-provider.transport.js';
+import { field, formatAddress, HttpProviderTransport, type ProviderResponse } from './http-provider.transport.js';
 
 /**
  * Resend's `POST /emails`. An `idempotencyKey` is sent as the `Idempotency-Key` header

@@ -2,12 +2,7 @@ import type { PostmarkTransportOptions } from '../interfaces/provider-transport-
 import { MailProviderError } from '../errors/mail-provider.error.js';
 import type { MailTransportResult, MailTransportSendOptions } from '../interfaces/mail-transport.interface.js';
 import type { MailMessage } from '../message/mail-message.js';
-import {
-  field,
-  formatAddress,
-  HttpProviderTransport,
-  type ProviderResponse,
-} from './http-provider.transport.js';
+import { field, formatAddress, HttpProviderTransport, type ProviderResponse } from './http-provider.transport.js';
 import { checkBaseUrl } from './resend.transport.js';
 
 /**
