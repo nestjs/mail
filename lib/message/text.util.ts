@@ -31,7 +31,8 @@ export function decodeEntities(text: string): string {
       const code = entity[1] === 'x' || entity[1] === 'X' ? parseInt(entity.slice(2), 16) : parseInt(entity.slice(1), 10);
       return code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : match;
     }
-    return NAMED_ENTITIES[entity.toLowerCase()] ?? match;
+    const name = entity.toLowerCase();
+    return Object.hasOwn(NAMED_ENTITIES, name) ? NAMED_ENTITIES[name] : match;
   });
 }
 
