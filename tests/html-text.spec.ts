@@ -52,6 +52,10 @@ describe('entities', () => {
   it('leaves unknown names and invalid code points as they are', () => {
     expect(decodeEntities('&bogus; &#0; &#xD800; &#x110000; & amp;')).toBe('&bogus; &#0; &#xD800; &#x110000; & amp;');
   });
+
+  it('leaves a name that only Object.prototype knows as it is', () => {
+    expect(decodeEntities('&constructor; &Constructor;')).toBe('&constructor; &Constructor;');
+  });
 });
 
 describe('htmlToText()', () => {
