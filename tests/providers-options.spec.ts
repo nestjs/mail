@@ -51,12 +51,23 @@ describe('HTTP providers: options', () => {
     expect(requests.every((r) => r.init.redirect === 'error' && r.init.method === 'POST')).toBe(true);
   });
 
+  it('signs for the region a custom SES endpoint names, as given', async () => {
+    const { fetch, requests } = stubFetch(() => Response.json({ MessageId: 'x' }));
+
+    await new SesTransport({ region: 'ru-central1', credentials, fetch, endpoint: 'https://postbox.cloud.yandex.net' }).send(message, send);
+
+    const headers = requests[0].init.headers as Record<string, string>;
+    expect(headers.authorization).toMatch(/\/ru-central1\/ses\/aws4_request,/);
+  });
+
   it.each([
     ['a base URL that is not a URL', () => new ResendTransport({ apiKey: 'k', baseUrl: 'not a url' }), 'ResendTransport `baseUrl` is not a URL'],
     ['an empty SendGrid apiKey', () => new SendGridTransport({ apiKey: '' }), 'SendGridTransport `apiKey` is required'],
     ['a missing Resend apiKey', () => new ResendTransport({} as never), 'ResendTransport `apiKey` is required'],
     ['a fetch that is not a function', () => new PostmarkTransport({ serverToken: 'k', fetch: 'fetch' as never }), 'PostmarkTransport `fetch` must be a function'],
     ['a malformed SES region', () => new SesTransport({ region: 'europe', credentials }), 'SesTransport `region` is required'],
+    ['a non-AWS SES region without an endpoint', () => new SesTransport({ region: 'ru-central1', credentials }), 'SesTransport `region` is required'],
+    ['a SES region a credential scope can\'t hold', () => new SesTransport({ region: 'ru/central1', credentials, endpoint: 'https://ses.example' }), 'SesTransport `region` is required'],
     ['a plain-http SES endpoint', () => new SesTransport({ region: 'us-east-1', credentials, endpoint: 'http://ses.example' }), 'SesTransport `baseUrl` must be https'],
     ['incomplete SES credentials', () => new SesTransport({ region: 'us-east-1', credentials: { accessKeyId: 'a' } as never }), 'SesTransport needs `credentials`'],
   ])('fails at startup on %s', (_case, make, message) => {

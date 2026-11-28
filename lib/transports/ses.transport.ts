@@ -35,7 +35,10 @@ export class SesTransport extends HttpProviderTransport {
     super('SES', options);
 
     const region = options.region ?? process.env.AWS_REGION ?? process.env.AWS_DEFAULT_REGION;
-    if (!region || !/^[a-z]{2}(-[a-z]+)+-\d$/.test(region)) {
+    // Without an endpoint, the region names an AWS host. A custom endpoint may sign for a region
+    // AWS doesn't have, such as "ru-central1", used as given in the credential scope.
+    const pattern = options.endpoint ? /^[a-z0-9]+(-[a-z0-9]+)*$/ : /^[a-z]{2}(-[a-z]+)+-\d$/;
+    if (!region || !pattern.test(region)) {
       throw new TypeError('SesTransport `region` is required (or AWS_REGION), e.g. "eu-west-1"');
     }
 
