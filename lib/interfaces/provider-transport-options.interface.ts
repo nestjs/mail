@@ -31,7 +31,10 @@ export interface SendGridTransportOptions extends HttpProviderOptions {
 }
 
 export interface SesTransportOptions extends HttpProviderOptions {
-  /** Default: `AWS_REGION`, then `AWS_DEFAULT_REGION`. Required in one of the three. */
+  /**
+   * Default: `AWS_REGION`, then `AWS_DEFAULT_REGION`. Required in one of the three. With a custom
+   * `endpoint`, the region that endpoint signs for, such as `ru-central1`.
+   */
   region?: string;
   /**
    * Static credentials, or a function that resolves them (called for every send, so it
